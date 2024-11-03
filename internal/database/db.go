@@ -1,8 +1,6 @@
 package database
 
 import (
-	"errors"
-
 	"github.com/Jasonbourne723/platodb/internal/database/memorytable"
 )
 
@@ -25,17 +23,10 @@ func NewDB(options ...Options) (*DB, error) {
 
 func (db *DB) Get(key string) ([]byte, error) {
 
-	if len(key) == 0 {
-		return nil, errors.New("key 格式错误")
-	}
 	return db.MemoryTable.Get(key), nil
 }
 
 func (db *DB) Set(key string, value []byte) error {
-
-	if len(key) == 0 {
-		return errors.New("key 格式错误")
-	}
 
 	db.MemoryTable.Set(key, value)
 	return nil
