@@ -61,6 +61,20 @@ func (s *Segment) Write(key string, value []byte) error {
 	return nil
 }
 
+func (s *Segment) Sync() error {
+	if err := s.writer.Flush(); err != nil {
+		return err
+	}
+	return s.file.Sync()
+}
+
+func (s *Segment) Close() error {
+	if err := s.writer.Flush(); err != nil {
+		return err
+	}
+	return s.file.Close()
+}
+
 func (s *Segment) Encode(key string, value []byte) ([]byte, error) {
 	s.buf.Reset()
 
