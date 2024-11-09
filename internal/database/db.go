@@ -31,3 +31,8 @@ func (db *DB) Set(key string, value []byte) error {
 	db.MemoryTable.Set(key, value)
 	return nil
 }
+
+func (db *DB) Del(key string) error {
+	db.MemoryTable.Del(key)
+	return nil
+}

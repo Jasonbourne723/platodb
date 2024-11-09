@@ -13,7 +13,8 @@ type Node struct {
 	Level   int32
 	Key     string
 	Value   []byte
-	Forward []*Node
+	Next    []*Node
+	Deleted bool
 }
 
 func NewSkipTable() *SkipTable {
@@ -28,9 +29,9 @@ func NewSkipTable() *SkipTable {
 //新建节点
 func NewNode(level int32) *Node {
 	return &Node{
-		Level:   level,
-		Forward: make([]*Node, level),
-		Key:     "",
+		Level: level,
+		Next:  make([]*Node, level),
+		Key:   "",
 	}
 }
 
@@ -38,7 +39,7 @@ func NewNode(level int32) *Node {
 func (s *SkipTable) Set(key string, value []byte) {
 
 	var level int32
-	if s.Head.Forward[0] == nil {
+	if s.Head.Next[0] == nil {
 		level = 1
 	} else {
 		level = s.randomLevel()
@@ -54,19 +55,25 @@ func (s *SkipTable) Set(key string, value []byte) {
 	var newNode = NewNode(level)
 	newNode.Key = key
 	newNode.Value = value
+	newNode.Deleted = false
 
 	node := s.Head
 	for i := s.Level - 1; i >= 0; i-- {
-		for node.Forward[i] != nil && node.Forward[i].Key < key {
-			node = node.Forward[i]
+		for node.Next[i] != nil && key >= node.Next[i].Key {
+			node = node.Next[i]
 		}
 		if level > i {
-			if node.Forward[i] == nil {
-				node.Forward[i] = newNode
+			if node.Key == key {
+				node.Value = value
+				node.Deleted = false
 			} else {
-				next := node.Forward[i]
-				node.Forward[i] = newNode
-				newNode.Forward[i] = next
+				if node.Next[i] == nil {
+					node.Next[i] = newNode
+				} else {
+					next := node.Next[i]
+					node.Next[i] = newNode
+					newNode.Next[i] = next
+				}
 			}
 		}
 	}
@@ -78,16 +85,33 @@ func (s *SkipTable) Get(key string) []byte {
 
 	node := s.Head
 	for i := s.Level - 1; i >= 0; i-- {
-		for node.Forward[i] != nil && node.Forward[i].Key <= key {
-			if node.Forward[i].Key == key {
-				return node.Forward[i].Value
+		for node.Next[i] != nil && node.Next[i].Key <= key {
+			if node.Next[i].Key == key {
+				if node.Next[i].Deleted {
+					return nil
+				}
+				return node.Next[i].Value
 			} else {
-				node = node.Forward[i]
+				node = node.Next[i]
 			}
 		}
 	}
 
 	return nil
+}
+
+func (s *SkipTable) Del(key string) {
+	node := s.Head
+	for i := s.Level - 1; i >= 0; i-- {
+		for node.Next[i] != nil && node.Next[i].Key <= key {
+			if node.Next[i].Key == key {
+				node.Next[i].Deleted = true
+				return
+			} else {
+				node = node.Next[i]
+			}
+		}
+	}
 }
 
 //随机level

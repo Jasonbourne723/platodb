@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/Jasonbourne723/platodb/internal/database"
 )
@@ -17,18 +18,33 @@ func main() {
 	db.Set("key:1", []byte("value1"))
 	db.Set("key:2", []byte("value2"))
 	db.Set("key:3", []byte("value3"))
-	db.Set("key:4", []byte("value4"))
-	db.Set("key:5", []byte("value5"))
-	db.Set("key:6", []byte("value6"))
-	db.Set("key:7", []byte("value7"))
 
-	val6, _ := db.Get("key:6")
-	fmt.Printf("val6: %v\n", string(val6))
+	for _, v := range [...]int{1, 2, 3} {
+		print(db, v)
+	}
 
-	val8, _ := db.Get("key:8")
-	fmt.Printf("val8: %v\n", string(val8))
+	db.Del("key:2")
 
-	val4, _ := db.Get("key:4")
-	fmt.Printf("val4: %v\n", string(val4))
+	fmt.Printf("\"-----------\": %v\n", "-----------")
 
+	for _, v := range [...]int{1, 2, 3} {
+		print(db, v)
+	}
+
+	db.Set("key:2", []byte("value5"))
+	db.Set("key:1", []byte("value6"))
+
+	fmt.Printf("\"-----------\": %v\n", "-----------")
+
+	for _, v := range [...]int{1, 2, 3} {
+		print(db, v)
+	}
+
+}
+
+func print(db *database.DB, i int) {
+	key := "key:" + strconv.Itoa(i)
+	if val, err := db.Get(key); err == nil {
+		fmt.Printf("val: %v\n", string(val))
+	}
 }
