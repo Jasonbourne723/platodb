@@ -1,18 +1,29 @@
 package database
 
 import (
+	"fmt"
+
 	"github.com/Jasonbourne723/platodb/internal/database/memorytable"
+	"github.com/Jasonbourne723/platodb/internal/database/sstable"
 )
 
 type DB struct {
-	MemoryTable memorytable.Memorytable
+	memoryTable memorytable.Memorytable
+	sstable     *sstable.SSTable
 }
 
 type Options func(db *DB)
 
 func NewDB(options ...Options) (*DB, error) {
+
+	sst, err := sstable.NewSSTable()
+	if err != nil {
+		return nil, fmt.Errorf("sstable加载失败:%w", err)
+	}
+
 	db := DB{
-		MemoryTable: memorytable.NewSkipTable(),
+		memoryTable: memorytable.NewSkipTable(),
+		sstable:     sst,
 	}
 
 	for _, option := range options {
@@ -23,16 +34,20 @@ func NewDB(options ...Options) (*DB, error) {
 
 func (db *DB) Get(key string) ([]byte, error) {
 
-	return db.MemoryTable.Get(key), nil
+	val := db.memoryTable.Get(key)
+	if val != nil {
+		return val, nil
+	}
+	return db.sstable.Get(key)
 }
 
 func (db *DB) Set(key string, value []byte) error {
 
-	db.MemoryTable.Set(key, value)
+	db.memoryTable.Set(key, value)
 	return nil
 }
 
 func (db *DB) Del(key string) error {
-	db.MemoryTable.Del(key)
+	db.memoryTable.Del(key)
 	return nil
 }

@@ -4,9 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
+	"math"
 	"os"
+	"path"
+	"strconv"
+	"strings"
 )
 
 const (
@@ -15,52 +20,127 @@ const (
 	MB = 1 << (10 * iota)
 	GB = 1 << (10 * iota)
 
-	BLOCK_SIZE   = 32 * KB
-	SEGMENT_SIZE = 256 * MB
+	BLOCK_SIZE   = 64 * KB
+	SEGMENT_SIZE = 8 * MB
+)
+
+const (
+	FILEMODE_PERM = 0644
+	SUFFIX        = "seg"
 )
 
 type Segment struct {
-	file             *os.File
-	writer           *bufio.Writer
-	currentBlockNum  int32
-	currentBlockSize int32
-	buf              *bytes.Buffer
+	id       int64
+	file     *os.File
+	filePath string
+	closed   bool
+	writer   *bufio.Writer
+	buf      *bytes.Buffer
+	blocks   []Block
+	size     int64
 }
 
-func NewSegment(path string) (*Segment, error) {
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_RDWR, 0644)
+// 创建一个新的segment文件
+func NewSegment(root string, id int64) (*Segment, error) {
+
+	name := fmt.Sprintf("%06d.%s", id, SUFFIX)
+	filePath := path.Join(root, name)
+
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, FILEMODE_PERM)
 	if err != nil {
-		return nil, fmt.Errorf("seg文件打开失败:%w", err)
+		return nil, fmt.Errorf("segment文件打开失败:%w", err)
 	}
 	return &Segment{
-		file:   file,
-		writer: bufio.NewWriter(file),
-		buf:    &bytes.Buffer{},
+		id:       id,
+		file:     file,
+		filePath: filePath,
+		writer:   bufio.NewWriter(file),
+		buf:      &bytes.Buffer{},
+		blocks:   make([]Block, 0, SEGMENT_SIZE/BLOCK_SIZE+1),
 	}, nil
 }
 
-func (s *Segment) Write(key string, value []byte) error {
-
-	data, err := s.Encode(key, value)
+// 加载已存在的segment文件
+func LoadSegment(root string, name string) (*Segment, error) {
+	if !strings.HasSuffix(name, SUFFIX) {
+		return nil, errors.New("FILE FORMAT ERROR")
+	}
+	id, err := strconv.Atoi(strings.Split(name, ".")[0])
 	if err != nil {
-		return err
+		return nil, err
+	}
+	filePath := path.Join(root, name)
+
+	// 获取文件信息
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(filePath, os.O_RDONLY, FILEMODE_PERM)
+	if err != nil {
+		return nil, err
+	}
+	seg := &Segment{
+		id:       int64(id),
+		filePath: filePath,
+		file:     file,
+		closed:   true,
+		size:     fileInfo.Size(),
 	}
 
-	l := int32(len(data))
-	if s.currentBlockSize+l > BLOCK_SIZE {
-		s.currentBlockNum++
-		s.currentBlockSize = 0
-	}
-	defer func() {
-		s.currentBlockSize += l
-	}()
-	_, err = s.writer.Write(data)
-	if err != nil {
-		return err
-	}
-	return nil
+	return seg, nil
 }
 
+// 写入数据
+func (s *Segment) Write(chunk *Chunk) error {
+	data, err := s.Encode(chunk)
+	if err != nil {
+		return err
+	}
+	l := int64(len(data))
+
+	if l > BLOCK_SIZE {
+		return errors.New("too large")
+	}
+
+	block := s.getLatestEnonghBlock(l)
+	return block.AddChunk(chunk, data)
+}
+
+// 获取最后一个块，如果最后一个块容量不足，会新建一个块
+func (s Segment) getLatestEnonghBlock(l int64) *Block {
+	length := len(s.blocks)
+	if length == 0 || !s.blocks[length-1].Enough(l) {
+		s.blocks = append(s.blocks, *NewBlock(&s, int64(length*BLOCK_SIZE)))
+	}
+	return &s.blocks[len(s.blocks)-1]
+}
+
+// 查询key-value；
+// deleted为true，表示数据已被删除；
+// ok为true，表示查询到key-value；
+func (s *Segment) Get(key string) (chunk *Chunk, err error) {
+
+	//初始化blcoks
+	if s.blocks == nil || len(s.blocks) == 0 {
+		blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
+		s.blocks = make([]Block, 0, blockCount)
+
+		for i := 0; i < blockCount; i++ {
+			s.blocks = append(s.blocks, *NewBlock(s, int64(i*BLOCK_SIZE)))
+		}
+	}
+
+	for i := range s.blocks {
+		chunk, err := s.blocks[i].Get(key)
+		if err != nil || chunk != nil {
+			return chunk, err
+		}
+	}
+	return nil, nil
+}
+
+// 同步文件系统
 func (s *Segment) Sync() error {
 	if err := s.writer.Flush(); err != nil {
 		return err
@@ -68,25 +148,33 @@ func (s *Segment) Sync() error {
 	return s.file.Sync()
 }
 
+// 关闭文件流
 func (s *Segment) Close() error {
-	if err := s.writer.Flush(); err != nil {
-		return err
+	if s.writer != nil {
+		if err := s.writer.Flush(); err != nil {
+			return err
+		}
 	}
 	return s.file.Close()
 }
 
-func (s *Segment) Encode(key string, value []byte) ([]byte, error) {
+// 数据编码，将key-value转为二进制字节流
+func (s *Segment) Encode(chunk *Chunk) ([]byte, error) {
 	s.buf.Reset()
 
-	if err := s.buf.WriteByte(1); err != nil {
+	deleted := uint8(0)
+	if chunk.deleted {
+		deleted = 1
+		chunk.value = nil
+	}
+	if err := s.buf.WriteByte(deleted); err != nil {
 		return nil, err
 	}
 
-	keyBytes := []byte(key)
+	keyBytes := []byte(chunk.key)
 	keyLen := uint8(len(keyBytes))
-	valueLen := uint16(len(value))
 
-	crc := crc32.ChecksumIEEE(append(keyBytes, value...))
+	crc := crc32.ChecksumIEEE(append(keyBytes, chunk.value...))
 	if err := binary.Write(s.buf, binary.BigEndian, crc); err != nil {
 		return nil, err
 	}
@@ -96,11 +184,15 @@ func (s *Segment) Encode(key string, value []byte) ([]byte, error) {
 	if _, err := s.buf.Write(keyBytes); err != nil {
 		return nil, err
 	}
-	if err := binary.Write(s.buf, binary.BigEndian, valueLen); err != nil {
-		return nil, err
+	if !chunk.deleted {
+		valueLen := uint16(len(chunk.value))
+		if err := binary.Write(s.buf, binary.BigEndian, valueLen); err != nil {
+			return nil, err
+		}
+		if _, err := s.buf.Write(chunk.value); err != nil {
+			return nil, err
+		}
 	}
-	if _, err := s.buf.Write(value); err != nil {
-		return nil, err
-	}
+
 	return s.buf.Bytes(), nil
 }
