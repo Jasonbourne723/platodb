@@ -1,6 +1,10 @@
 package memorytable
 
-import "math/rand"
+import (
+	"math/rand"
+
+	"github.com/Jasonbourne723/platodb/internal/database/common"
+)
 
 type SkipTable struct {
 	maxLevel int32
@@ -11,11 +15,9 @@ type SkipTable struct {
 }
 
 type node struct {
-	level   int32
-	key     string
-	value   []byte
-	next    []*node
-	deleted bool
+	level int32
+	next  []*node
+	chunk *common.Chunk
 }
 
 func NewSkipTable() *SkipTable {
@@ -27,16 +29,20 @@ func NewSkipTable() *SkipTable {
 	}
 }
 
-//新建节点
+// 新建节点
 func NewNode(level int32) *node {
 	return &node{
 		level: level,
 		next:  make([]*node, level),
-		key:   "",
+		chunk: &common.Chunk{
+			Key:     "",
+			Value:   nil,
+			Deleted: false,
+		},
 	}
 }
 
-//插入数据
+// 插入数据
 func (s *SkipTable) Set(key string, value []byte) {
 
 	var level int32
@@ -54,19 +60,19 @@ func (s *SkipTable) Set(key string, value []byte) {
 	}
 
 	var newNode = NewNode(level)
-	newNode.key = key
-	newNode.value = value
-	newNode.deleted = false
+	newNode.chunk.Key = key
+	newNode.chunk.Value = value
+	newNode.chunk.Deleted = false
 
 	node := s.head
 	for i := s.level - 1; i >= 0; i-- {
-		for node.next[i] != nil && key >= node.next[i].key {
+		for node.next[i] != nil && key >= node.next[i].chunk.Key {
 			node = node.next[i]
 		}
 		if level > i {
-			if node.key == key {
-				node.value = value
-				node.deleted = false
+			if node.chunk.Key == key {
+				node.chunk.Value = value
+				node.chunk.Deleted = false
 			} else {
 				if node.next[i] == nil {
 					node.next[i] = newNode
@@ -81,17 +87,17 @@ func (s *SkipTable) Set(key string, value []byte) {
 	s.allSize = s.allSize + int64(len(key)) + int64(len(value))
 }
 
-//查询数据
+// 查询数据
 func (s *SkipTable) Get(key string) []byte {
 
 	node := s.head
 	for i := s.level - 1; i >= 0; i-- {
-		for node.next[i] != nil && node.next[i].key <= key {
-			if node.next[i].key == key {
-				if node.next[i].deleted {
+		for node.next[i] != nil && node.next[i].chunk.Key <= key {
+			if node.next[i].chunk.Key == key {
+				if node.next[i].chunk.Deleted {
 					return nil
 				}
-				return node.next[i].value
+				return node.next[i].chunk.Value
 			} else {
 				node = node.next[i]
 			}
@@ -101,13 +107,13 @@ func (s *SkipTable) Get(key string) []byte {
 	return nil
 }
 
-//删除数据
+// 删除数据
 func (s *SkipTable) Del(key string) {
 	node := s.head
 	for i := s.level - 1; i >= 0; i-- {
-		for node.next[i] != nil && node.next[i].key <= key {
-			if node.next[i].key == key {
-				node.next[i].deleted = true
+		for node.next[i] != nil && node.next[i].chunk.Key <= key {
+			if node.next[i].chunk.Key == key {
+				node.next[i].chunk.Deleted = true
 				return
 			} else {
 				node = node.next[i]
@@ -116,7 +122,7 @@ func (s *SkipTable) Del(key string) {
 	}
 }
 
-//随机level
+// 随机level
 func (s *SkipTable) randomLevel() int32 {
 
 	level := 1
@@ -131,7 +137,7 @@ func (s *SkipTable) randomLevel() int32 {
 	return int32(level)
 }
 
-//内存数据字节数
+// 内存数据字节数
 func (s *SkipTable) Size() int64 {
 	return s.allSize
 }
@@ -144,6 +150,6 @@ func (s *SkipTable) Scan() bool {
 	return true
 }
 
-func (s *SkipTable) ScanValue() (key string, value []byte, deleted bool) {
-	return s.scanPos.key, s.scanPos.value, s.scanPos.deleted
+func (s *SkipTable) ScanValue() *common.Chunk {
+	return s.scanPos.chunk
 }

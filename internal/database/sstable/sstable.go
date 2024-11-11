@@ -1,6 +1,10 @@
 package sstable
 
-import "os"
+import (
+	"os"
+
+	"github.com/Jasonbourne723/platodb/internal/database/common"
+)
 
 const (
 	Root = "D://platodb//"
@@ -11,26 +15,22 @@ type SSTable struct {
 	Root     string
 }
 
-type Scanner interface {
-	Scan() bool
-	ScanValue() (key string, value []byte, deleted bool)
-}
-
+// 创建sstable
 func NewSSTable() (*SSTable, error) {
 
 	sst := &SSTable{
 		Root:     Root,
 		Segments: make([]*Segment, 0, 10),
 	}
-	err := sst.Load()
+	err := sst.load()
 	if err != nil {
 		return nil, err
 	}
 	return sst, nil
 }
 
-//加载sstable信息
-func (s *SSTable) Load() error {
+// 加载sstable信息
+func (s *SSTable) load() error {
 	files, err := os.ReadDir(s.Root)
 	if err != nil {
 		return err
@@ -50,7 +50,7 @@ func (s *SSTable) Load() error {
 	return nil
 }
 
-//生成下一个segmentId
+// 生成下一个segmentId
 func (s *SSTable) generateSegmentId() int64 {
 	if len(s.Segments) == 0 {
 		return 0
@@ -58,8 +58,8 @@ func (s *SSTable) generateSegmentId() int64 {
 	return s.Segments[len(s.Segments)-1].id + 1
 }
 
-//将内存表写入sstable
-func (s *SSTable) Write(scanner Scanner) error {
+// 将内存表写入sstable
+func (s *SSTable) Write(scanner common.Scanner) error {
 
 	seg, err := NewSegment(s.Root, s.generateSegmentId())
 	if err != nil {
@@ -67,12 +67,7 @@ func (s *SSTable) Write(scanner Scanner) error {
 	}
 
 	if scanner.Scan() {
-		key, value, deleted := scanner.ScanValue()
-		chunk := &Chunk{
-			key:     key,
-			value:   value,
-			deleted: deleted,
-		}
+		chunk := scanner.ScanValue()
 		seg.Write(chunk)
 	}
 
@@ -80,7 +75,7 @@ func (s *SSTable) Write(scanner Scanner) error {
 	return seg.Sync()
 }
 
-//倒序扫描segment文件，直到查询key
+// 倒序扫描segment文件，直到查询key
 func (s *SSTable) Get(key string) ([]byte, error) {
 
 	//布隆过滤器，确认key是否存在
@@ -91,10 +86,10 @@ func (s *SSTable) Get(key string) ([]byte, error) {
 			return nil, err
 		}
 		if chunk != nil {
-			if chunk.deleted {
+			if chunk.Deleted {
 				return nil, nil
 			}
-			return chunk.value, nil
+			return chunk.Value, nil
 		}
 	}
 	return nil, nil

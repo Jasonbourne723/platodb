@@ -12,6 +12,8 @@ import (
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
 
 const (
@@ -94,7 +96,7 @@ func LoadSegment(root string, name string) (*Segment, error) {
 }
 
 // 写入数据
-func (s *Segment) Write(chunk *Chunk) error {
+func (s *Segment) Write(chunk *common.Chunk) error {
 	data, err := s.Encode(chunk)
 	if err != nil {
 		return err
@@ -121,7 +123,7 @@ func (s Segment) getLatestEnonghBlock(l int64) *Block {
 // 查询key-value；
 // deleted为true，表示数据已被删除；
 // ok为true，表示查询到key-value；
-func (s *Segment) Get(key string) (chunk *Chunk, err error) {
+func (s *Segment) Get(key string) (chunk *common.Chunk, err error) {
 
 	//初始化blcoks
 	if s.blocks == nil {
@@ -162,22 +164,22 @@ func (s *Segment) Close() error {
 }
 
 // 数据编码，将key-value转为二进制字节流
-func (s *Segment) Encode(chunk *Chunk) ([]byte, error) {
+func (s *Segment) Encode(chunk *common.Chunk) ([]byte, error) {
 	s.buf.Reset()
 
 	deleted := uint8(0)
-	if chunk.deleted {
+	if chunk.Deleted {
 		deleted = 1
-		chunk.value = nil
+		chunk.Value = nil
 	}
 	if err := s.buf.WriteByte(deleted); err != nil {
 		return nil, err
 	}
 
-	keyBytes := []byte(chunk.key)
+	keyBytes := []byte(chunk.Key)
 	keyLen := uint8(len(keyBytes))
 
-	crc := crc32.ChecksumIEEE(append(keyBytes, chunk.value...))
+	crc := crc32.ChecksumIEEE(append(keyBytes, chunk.Value...))
 	if err := binary.Write(s.buf, binary.BigEndian, crc); err != nil {
 		return nil, err
 	}
@@ -187,12 +189,12 @@ func (s *Segment) Encode(chunk *Chunk) ([]byte, error) {
 	if _, err := s.buf.Write(keyBytes); err != nil {
 		return nil, err
 	}
-	if !chunk.deleted {
-		valueLen := uint16(len(chunk.value))
+	if !chunk.Deleted {
+		valueLen := uint16(len(chunk.Value))
 		if err := binary.Write(s.buf, binary.BigEndian, valueLen); err != nil {
 			return nil, err
 		}
-		if _, err := s.buf.Write(chunk.value); err != nil {
+		if _, err := s.buf.Write(chunk.Value); err != nil {
 			return nil, err
 		}
 	}
