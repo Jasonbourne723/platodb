@@ -83,6 +83,8 @@ func (s *SSTable) Write(scanner Scanner) error {
 //倒序扫描segment文件，直到查询key
 func (s *SSTable) Get(key string) ([]byte, error) {
 
+	//布隆过滤器，确认key是否存在
+
 	for i := len(s.Segments) - 1; i >= 0; i-- {
 		chunk, err := s.Segments[i].Get(key)
 		if err != nil {

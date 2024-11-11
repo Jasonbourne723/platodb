@@ -3,35 +3,36 @@ package memorytable
 import "math/rand"
 
 type SkipTable struct {
-	MaxLevel int32
-	Head     *Node
-	Level    int32
-	Size     int64
+	maxLevel int32
+	head     *node
+	level    int32
+	allSize  int64
+	scanPos  *node
 }
 
-type Node struct {
-	Level   int32
-	Key     string
-	Value   []byte
-	Next    []*Node
-	Deleted bool
+type node struct {
+	level   int32
+	key     string
+	value   []byte
+	next    []*node
+	deleted bool
 }
 
 func NewSkipTable() *SkipTable {
 	var maxLevel int32 = 10
 	return &SkipTable{
-		MaxLevel: maxLevel,
-		Level:    1,
-		Head:     NewNode(maxLevel),
+		maxLevel: maxLevel,
+		level:    1,
+		head:     NewNode(maxLevel),
 	}
 }
 
 //新建节点
-func NewNode(level int32) *Node {
-	return &Node{
-		Level: level,
-		Next:  make([]*Node, level),
-		Key:   "",
+func NewNode(level int32) *node {
+	return &node{
+		level: level,
+		next:  make([]*node, level),
+		key:   "",
 	}
 }
 
@@ -39,60 +40,60 @@ func NewNode(level int32) *Node {
 func (s *SkipTable) Set(key string, value []byte) {
 
 	var level int32
-	if s.Head.Next[0] == nil {
+	if s.head.next[0] == nil {
 		level = 1
 	} else {
 		level = s.randomLevel()
 	}
 
-	if level > s.Level {
-		if s.Level < s.MaxLevel {
-			s.Level++
-			level = s.Level
+	if level > s.level {
+		if s.level < s.maxLevel {
+			s.level++
+			level = s.level
 		}
 	}
 
 	var newNode = NewNode(level)
-	newNode.Key = key
-	newNode.Value = value
-	newNode.Deleted = false
+	newNode.key = key
+	newNode.value = value
+	newNode.deleted = false
 
-	node := s.Head
-	for i := s.Level - 1; i >= 0; i-- {
-		for node.Next[i] != nil && key >= node.Next[i].Key {
-			node = node.Next[i]
+	node := s.head
+	for i := s.level - 1; i >= 0; i-- {
+		for node.next[i] != nil && key >= node.next[i].key {
+			node = node.next[i]
 		}
 		if level > i {
-			if node.Key == key {
-				node.Value = value
-				node.Deleted = false
+			if node.key == key {
+				node.value = value
+				node.deleted = false
 			} else {
-				if node.Next[i] == nil {
-					node.Next[i] = newNode
+				if node.next[i] == nil {
+					node.next[i] = newNode
 				} else {
-					next := node.Next[i]
-					node.Next[i] = newNode
-					newNode.Next[i] = next
+					next := node.next[i]
+					node.next[i] = newNode
+					newNode.next[i] = next
 				}
 			}
 		}
 	}
-	s.Size = s.Size + int64(len(key)) + int64(len(value))
+	s.allSize = s.allSize + int64(len(key)) + int64(len(value))
 }
 
 //查询数据
 func (s *SkipTable) Get(key string) []byte {
 
-	node := s.Head
-	for i := s.Level - 1; i >= 0; i-- {
-		for node.Next[i] != nil && node.Next[i].Key <= key {
-			if node.Next[i].Key == key {
-				if node.Next[i].Deleted {
+	node := s.head
+	for i := s.level - 1; i >= 0; i-- {
+		for node.next[i] != nil && node.next[i].key <= key {
+			if node.next[i].key == key {
+				if node.next[i].deleted {
 					return nil
 				}
-				return node.Next[i].Value
+				return node.next[i].value
 			} else {
-				node = node.Next[i]
+				node = node.next[i]
 			}
 		}
 	}
@@ -100,15 +101,16 @@ func (s *SkipTable) Get(key string) []byte {
 	return nil
 }
 
+//删除数据
 func (s *SkipTable) Del(key string) {
-	node := s.Head
-	for i := s.Level - 1; i >= 0; i-- {
-		for node.Next[i] != nil && node.Next[i].Key <= key {
-			if node.Next[i].Key == key {
-				node.Next[i].Deleted = true
+	node := s.head
+	for i := s.level - 1; i >= 0; i-- {
+		for node.next[i] != nil && node.next[i].key <= key {
+			if node.next[i].key == key {
+				node.next[i].deleted = true
 				return
 			} else {
-				node = node.Next[i]
+				node = node.next[i]
 			}
 		}
 	}
@@ -119,7 +121,7 @@ func (s *SkipTable) randomLevel() int32 {
 
 	level := 1
 
-	for i := 0; i < int(s.MaxLevel); i++ {
+	for i := 0; i < int(s.maxLevel); i++ {
 		if rand.Int()%2 == 1 {
 			level++
 		} else {
@@ -130,6 +132,18 @@ func (s *SkipTable) randomLevel() int32 {
 }
 
 //内存数据字节数
-func (s *SkipTable) Length() int64 {
-	return s.Size
+func (s *SkipTable) Size() int64 {
+	return s.allSize
+}
+
+func (s *SkipTable) Scan() bool {
+	if s.scanPos.next[0] == nil {
+		return false
+	}
+	s.scanPos = s.scanPos.next[0]
+	return true
+}
+
+func (s *SkipTable) ScanValue() (key string, value []byte, deleted bool) {
+	return s.scanPos.key, s.scanPos.value, s.scanPos.deleted
 }

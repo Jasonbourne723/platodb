@@ -50,13 +50,15 @@ func NewSegment(root string, id int64) (*Segment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("segment文件打开失败:%w", err)
 	}
+
+	blockCount := int(math.Ceil(float64(SEGMENT_SIZE) / float64(BLOCK_SIZE)))
 	return &Segment{
 		id:       id,
 		file:     file,
 		filePath: filePath,
 		writer:   bufio.NewWriter(file),
 		buf:      &bytes.Buffer{},
-		blocks:   make([]Block, 0, SEGMENT_SIZE/BLOCK_SIZE+1),
+		blocks:   make([]Block, 0, blockCount),
 	}, nil
 }
 
@@ -122,7 +124,8 @@ func (s Segment) getLatestEnonghBlock(l int64) *Block {
 func (s *Segment) Get(key string) (chunk *Chunk, err error) {
 
 	//初始化blcoks
-	if s.blocks == nil || len(s.blocks) == 0 {
+	if s.blocks == nil {
+
 		blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
 		s.blocks = make([]Block, 0, blockCount)
 
