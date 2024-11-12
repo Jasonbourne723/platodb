@@ -3,10 +3,12 @@ package database
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"sync"
 
 	"github.com/Jasonbourne723/platodb/internal/database/memorytable"
 	"github.com/Jasonbourne723/platodb/internal/database/sstable"
+	"github.com/Jasonbourne723/platodb/internal/database/wal"
 )
 
 type DB struct {
@@ -15,6 +17,7 @@ type DB struct {
 	memoryTableLock *sync.RWMutex
 	flushLock       *sync.Mutex
 	isFlushing      bool
+	walMap          map[*memorytable.Memorytable]wal.Wal
 }
 
 type Options func(db *DB)
@@ -29,6 +32,7 @@ func NewDB(options ...Options) (*DB, error) {
 
 	db := DB{
 		memoryTables:    make([]memorytable.Memorytable, 0, 2),
+		walMap:          make(map[*memorytable.Memorytable]wal.Wal),
 		sstable:         sst,
 		memoryTableLock: &sync.RWMutex{},
 		flushLock:       &sync.Mutex{},
@@ -115,4 +119,33 @@ func (db *DB) Flush() {
 	db.memoryTableLock.Unlock()
 
 	//删除wal
+}
+
+func (db *DB) recoverFromWal(walDir string) error {
+	files, err := filepath.Glob(filepath.Join(walDir, "*.wal"))
+	if err != nil {
+		return err
+	}
+	for _, walFile := range files {
+		// 为每个 WAL 文件创建一个新的内存表，并将数据重放到内存表中
+		memTable := memorytable.NewSkipTable()
+		w, err := wal.OpenWAL(walFile) // 假设 OpenWAL 以读取模式打开 WAL 文件
+		if err != nil {
+			return fmt.Errorf("打开 WAL 文件失败 %s: %w", walFile, err)
+		}
+		db.memoryTables = append(db.memoryTables, memTable)
+		db.walTableMap[memTable] = w
+
+		// 重放 WAL 日志到内存表
+		for {
+			key, value, err := w.ReadEntry()
+			if err == wal.ErrEOF {
+				break
+			}
+			if err != nil {
+				return fmt.Errorf("读取 WAL 日志失败 %s: %w", walFile, err)
+			}
+			memTable.Set(key, value)
+		}
+	}
 }
