@@ -1,28 +1,26 @@
-package database
+package common
 
 import (
 	"bytes"
 	"encoding/binary"
 	"hash/crc32"
 	"sync"
-
-	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
 
-func New() *utils {
+func NewUtils() *Utils {
 	p := &sync.Pool{}
 	p.New = func() any {
 		return &bytes.Buffer{}
 	}
 
-	return &utils{}
+	return &Utils{}
 }
 
-type utils struct {
+type Utils struct {
 	pool *sync.Pool
 }
 
-func (u *utils) Encode(chunk *common.Chunk) ([]byte, error) {
+func (u *Utils) Encode(chunk *Chunk) ([]byte, error) {
 
 	buf := u.pool.Get().(*bytes.Buffer)
 	defer u.pool.Put(buf)

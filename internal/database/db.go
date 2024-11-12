@@ -13,6 +13,8 @@ type DB struct {
 	memoryTables    []memorytable.Memorytable
 	sstable         *sstable.SSTable
 	memoryTableLock *sync.RWMutex
+	flushLock       *sync.Mutex
+	isFlushing      bool
 }
 
 type Options func(db *DB)
@@ -26,8 +28,11 @@ func NewDB(options ...Options) (*DB, error) {
 	}
 
 	db := DB{
-		memoryTables: make([]memorytable.Memorytable, 0, 2),
-		sstable:      sst,
+		memoryTables:    make([]memorytable.Memorytable, 0, 2),
+		sstable:         sst,
+		memoryTableLock: &sync.RWMutex{},
+		flushLock:       &sync.Mutex{},
+		isFlushing:      false,
 	}
 	db.memoryTables = append(db.memoryTables, memorytable.NewSkipTable())
 
@@ -59,9 +64,9 @@ func (db *DB) Set(key string, value []byte) error {
 	db.memoryTableLock.RLocker().Lock()
 	defer db.memoryTableLock.RLocker().Unlock()
 
-	db.memoryTables[0].Set(key, value)
-	if db.memoryTables[0].Size() > sstable.SEGMENT_SIZE {
-		go db.Flush()
+	db.memoryTables[len(db.memoryTables)-1].Set(key, value)
+	if db.memoryTables[len(db.memoryTables)-1].Size() > sstable.SEGMENT_SIZE {
+		db.initiateFlush()
 	}
 
 	return nil
@@ -75,6 +80,23 @@ func (db *DB) Del(key string) error {
 
 	db.memoryTables[len(db.memoryTables)-1].Del(key)
 	return nil
+}
+
+func (db *DB) initiateFlush() {
+	db.flushLock.Lock()
+	defer db.flushLock.Unlock()
+
+	if db.isFlushing {
+		return
+	}
+	db.isFlushing = true
+
+	go func() {
+		db.Flush()
+		db.flushLock.Lock()
+		db.isFlushing = false
+		db.flushLock.Unlock()
+	}()
 }
 
 // 内存表写入sstable

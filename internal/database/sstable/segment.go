@@ -2,11 +2,8 @@ package sstable
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"math"
 	"os"
 	"path"
@@ -37,9 +34,9 @@ type Segment struct {
 	filePath string
 	closed   bool
 	writer   *bufio.Writer
-	buf      *bytes.Buffer
 	blocks   []Block
 	size     int64
+	utils    *common.Utils
 }
 
 // 创建一个新的segment文件
@@ -59,8 +56,8 @@ func NewSegment(root string, id int64) (*Segment, error) {
 		file:     file,
 		filePath: filePath,
 		writer:   bufio.NewWriter(file),
-		buf:      &bytes.Buffer{},
 		blocks:   make([]Block, 0, blockCount),
+		utils:    common.NewUtils(),
 	}, nil
 }
 
@@ -88,7 +85,7 @@ func LoadSegment(root string, name string) (*Segment, error) {
 		id:       int64(id),
 		filePath: filePath,
 		file:     file,
-		closed:   true,
+		closed:   false,
 		size:     fileInfo.Size(),
 	}
 
@@ -97,7 +94,8 @@ func LoadSegment(root string, name string) (*Segment, error) {
 
 // 写入数据
 func (s *Segment) Write(chunk *common.Chunk) error {
-	data, err := s.Encode(chunk)
+
+	data, err := s.utils.Encode(chunk)
 	if err != nil {
 		return err
 	}
@@ -164,40 +162,40 @@ func (s *Segment) Close() error {
 }
 
 // 数据编码，将key-value转为二进制字节流
-func (s *Segment) Encode(chunk *common.Chunk) ([]byte, error) {
-	s.buf.Reset()
+// func (s *Segment) Encode(chunk *common.Chunk) ([]byte, error) {
+// 	s.buf.Reset()
 
-	deleted := uint8(0)
-	if chunk.Deleted {
-		deleted = 1
-		chunk.Value = nil
-	}
-	if err := s.buf.WriteByte(deleted); err != nil {
-		return nil, err
-	}
+// 	deleted := uint8(0)
+// 	if chunk.Deleted {
+// 		deleted = 1
+// 		chunk.Value = nil
+// 	}
+// 	if err := s.buf.WriteByte(deleted); err != nil {
+// 		return nil, err
+// 	}
 
-	keyBytes := []byte(chunk.Key)
-	keyLen := uint8(len(keyBytes))
+// 	keyBytes := []byte(chunk.Key)
+// 	keyLen := uint8(len(keyBytes))
 
-	crc := crc32.ChecksumIEEE(append(keyBytes, chunk.Value...))
-	if err := binary.Write(s.buf, binary.BigEndian, crc); err != nil {
-		return nil, err
-	}
-	if err := s.buf.WriteByte(keyLen); err != nil {
-		return nil, err
-	}
-	if _, err := s.buf.Write(keyBytes); err != nil {
-		return nil, err
-	}
-	if !chunk.Deleted {
-		valueLen := uint16(len(chunk.Value))
-		if err := binary.Write(s.buf, binary.BigEndian, valueLen); err != nil {
-			return nil, err
-		}
-		if _, err := s.buf.Write(chunk.Value); err != nil {
-			return nil, err
-		}
-	}
+// 	crc := crc32.ChecksumIEEE(append(keyBytes, chunk.Value...))
+// 	if err := binary.Write(s.buf, binary.BigEndian, crc); err != nil {
+// 		return nil, err
+// 	}
+// 	if err := s.buf.WriteByte(keyLen); err != nil {
+// 		return nil, err
+// 	}
+// 	if _, err := s.buf.Write(keyBytes); err != nil {
+// 		return nil, err
+// 	}
+// 	if !chunk.Deleted {
+// 		valueLen := uint16(len(chunk.Value))
+// 		if err := binary.Write(s.buf, binary.BigEndian, valueLen); err != nil {
+// 			return nil, err
+// 		}
+// 		if _, err := s.buf.Write(chunk.Value); err != nil {
+// 			return nil, err
+// 		}
+// 	}
 
-	return s.buf.Bytes(), nil
-}
+// 	return s.buf.Bytes(), nil
+// }
