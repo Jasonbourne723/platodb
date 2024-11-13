@@ -129,5 +129,6 @@ func (w *Wal) Write(chunk *common.Chunk) error {
 	if err != nil {
 		return err
 	}
-	return w.file.Sync()
+	return nil
+	//return w.file.Sync()
 }

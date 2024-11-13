@@ -92,6 +92,9 @@ func (b *Block) LoadDataFromDisk() error {
 			break
 		}
 		keyLen := buf[pos]
+		if keyLen == 0 {
+			break
+		}
 		pos++
 
 		if !checkRemaining(int(keyLen)) {
@@ -117,7 +120,6 @@ func (b *Block) LoadDataFromDisk() error {
 			value = buf[pos : pos+int(valueLen)]
 			pos += int(valueLen)
 		}
-
 		// 校验 CRC
 		if crc != crc32.ChecksumIEEE(append([]byte(key), value...)) {
 			return errors.New("crc check failed")

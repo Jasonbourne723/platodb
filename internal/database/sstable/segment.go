@@ -3,7 +3,6 @@ package sstable
 import (
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path"
@@ -109,10 +108,11 @@ func (s *Segment) Write(chunk *common.Chunk) error {
 // 获取最后一个块，如果最后一个块容量不足，会新建一个块
 func (s *Segment) getLatestEnonghBlock(l int64) *Block {
 	length := len(s.blocks)
-	if length == 0 || !s.blocks[length-1].Enough(l) {
-		pos := int64(length * BLOCK_SIZE)
-		s.blocks = append(s.blocks, *NewBlock(s, pos))
-		s.file.Seek(pos, io.SeekStart)
+	if length == 0 {
+		s.blocks = append(s.blocks, *NewBlock(s, 0))
+	} else if !s.blocks[length-1].Enough(l) {
+		s.file.Write(make([]byte, BLOCK_SIZE-s.blocks[length-1].size))
+		s.blocks = append(s.blocks, *NewBlock(s, int64(length*BLOCK_SIZE)))
 	}
 	return &s.blocks[len(s.blocks)-1]
 }
