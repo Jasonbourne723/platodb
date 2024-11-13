@@ -15,10 +15,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// for i := 2; i < 10000; i++ {
-	// 	index := strconv.Itoa(i)
-	// 	db.Set("key:"+index, []byte("value"+index))
-	// }
+	for i := 10000; i < 1000000; i++ {
+		index := strconv.Itoa(i)
+		db.Set("key:"+index, []byte("value"+index))
+	}
 
 	// db.Set("key:1", []byte("value1"))
 	// db.Set("key:2", []byte("value2"))
@@ -41,9 +41,9 @@ func main() {
 
 	// fmt.Printf("\"-----------\": %v\n", "-----------")
 
-	for i := 0; i < 10000; i++ {
-		print(db, i)
-	}
+	// for i := 0; i < 100000; i++ {
+	// 	print(db, i)
+	// }
 
 }
 

@@ -201,7 +201,9 @@ func (db *DB) recoverFromWal(walDir string) error {
 			}
 		}
 		walFile.Close()
-		os.Remove(walFilePath)
+		if err := os.Remove(walFilePath); err != nil {
+			return err
+		}
 	}
 
 	return nil

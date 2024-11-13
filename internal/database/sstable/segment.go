@@ -19,7 +19,7 @@ const (
 	GB = 1 << (10 * iota)
 
 	BLOCK_SIZE   = 64 * KB
-	SEGMENT_SIZE = 8 * MB
+	SEGMENT_SIZE = 1 * MB
 )
 
 const (
