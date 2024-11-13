@@ -2,10 +2,13 @@ package database
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"path/filepath"
 	"sync"
 
+	"github.com/Jasonbourne723/platodb/internal/database/common"
 	"github.com/Jasonbourne723/platodb/internal/database/memorytable"
 	"github.com/Jasonbourne723/platodb/internal/database/sstable"
 	"github.com/Jasonbourne723/platodb/internal/database/wal"
@@ -17,7 +20,7 @@ type DB struct {
 	memoryTableLock *sync.RWMutex
 	flushLock       *sync.Mutex
 	isFlushing      bool
-	walMap          map[*memorytable.Memorytable]wal.Wal
+	walMap          map[memorytable.Memorytable]wal.WalWriter
 }
 
 type Options func(db *DB)
@@ -32,18 +35,35 @@ func NewDB(options ...Options) (*DB, error) {
 
 	db := DB{
 		memoryTables:    make([]memorytable.Memorytable, 0, 2),
-		walMap:          make(map[*memorytable.Memorytable]wal.Wal),
+		walMap:          make(map[memorytable.Memorytable]wal.WalWriter),
 		sstable:         sst,
 		memoryTableLock: &sync.RWMutex{},
 		flushLock:       &sync.Mutex{},
 		isFlushing:      false,
 	}
-	db.memoryTables = append(db.memoryTables, memorytable.NewSkipTable())
+
+	if err := db.recoverFromWal("D://platodb//wal//"); err != nil {
+		return nil, err
+	}
+	if err := db.createMemoryTable(); err != nil {
+		return nil, err
+	}
 
 	for _, option := range options {
 		option(&db)
 	}
 	return &db, nil
+}
+
+func (db *DB) createMemoryTable() error {
+	memoryTable := memorytable.NewSkipTable()
+	db.memoryTables = append(db.memoryTables, memoryTable)
+	wal, err := wal.NewWalWriter()
+	if err != nil {
+		return err
+	}
+	db.walMap[memoryTable] = wal
+	return nil
 }
 
 // 查询key
@@ -68,8 +88,18 @@ func (db *DB) Set(key string, value []byte) error {
 	db.memoryTableLock.RLocker().Lock()
 	defer db.memoryTableLock.RLocker().Unlock()
 
-	db.memoryTables[len(db.memoryTables)-1].Set(key, value)
-	if db.memoryTables[len(db.memoryTables)-1].Size() > sstable.SEGMENT_SIZE {
+	memeryTable := db.memoryTables[len(db.memoryTables)-1]
+
+	if wal, ok := db.walMap[memeryTable]; ok {
+		wal.Write(&common.Chunk{
+			Key:     key,
+			Value:   value,
+			Deleted: false,
+		})
+	}
+
+	memeryTable.Set(key, value, false)
+	if memeryTable.Size() > sstable.SEGMENT_SIZE {
 		db.initiateFlush()
 	}
 
@@ -81,8 +111,17 @@ func (db *DB) Del(key string) error {
 
 	db.memoryTableLock.RLocker().Lock()
 	defer db.memoryTableLock.RLocker().Unlock()
+	memeryTable := db.memoryTables[len(db.memoryTables)-1]
 
-	db.memoryTables[len(db.memoryTables)-1].Del(key)
+	if wal, ok := db.walMap[memeryTable]; ok {
+		wal.Write(&common.Chunk{
+			Key:     key,
+			Value:   nil,
+			Deleted: true,
+		})
+	}
+
+	memeryTable.Set(key, nil, true)
 	return nil
 }
 
@@ -107,7 +146,9 @@ func (db *DB) initiateFlush() {
 func (db *DB) Flush() {
 
 	db.memoryTableLock.Lock()
-	db.memoryTables = append(db.memoryTables, memorytable.NewSkipTable())
+	if err := db.createMemoryTable(); err != nil {
+		log.Fatal(fmt.Errorf("创建内存表失败，%w", err))
+	}
 	db.memoryTableLock.Unlock()
 
 	if err := db.sstable.Write(db.memoryTables[0]); err != nil {
@@ -121,31 +162,47 @@ func (db *DB) Flush() {
 	//删除wal
 }
 
+// 崩溃恢复
 func (db *DB) recoverFromWal(walDir string) error {
-	files, err := filepath.Glob(filepath.Join(walDir, "*.wal"))
+
+	files, err := filepath.Glob(filepath.Join(walDir, "*.log"))
 	if err != nil {
 		return err
 	}
-	for _, walFile := range files {
-		// 为每个 WAL 文件创建一个新的内存表，并将数据重放到内存表中
-		memTable := memorytable.NewSkipTable()
-		w, err := wal.OpenWAL(walFile) // 假设 OpenWAL 以读取模式打开 WAL 文件
-		if err != nil {
-			return fmt.Errorf("打开 WAL 文件失败 %s: %w", walFile, err)
-		}
-		db.memoryTables = append(db.memoryTables, memTable)
-		db.walTableMap[memTable] = w
+	for _, walFilePath := range files {
 
-		// 重放 WAL 日志到内存表
+		walFile, err := os.OpenFile(walFilePath, os.O_APPEND|os.O_RDWR, 0644)
+		if err != nil {
+			return err
+		}
+		wal, err := wal.NewWalReader(walFile)
+		if err != nil {
+			return err
+		}
+		memoryTable := memorytable.NewSkipTable()
+
 		for {
-			key, value, err := w.ReadEntry()
-			if err == wal.ErrEOF {
+			chunk, err := wal.Read()
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return err
+			}
+			if chunk == nil {
 				break
 			}
-			if err != nil {
-				return fmt.Errorf("读取 WAL 日志失败 %s: %w", walFile, err)
-			}
-			memTable.Set(key, value)
+			log.Printf("wal数据恢复,key:%v,value,%v,deleted:%v", chunk.Key, chunk.Value, chunk.Deleted)
+			memoryTable.Set(chunk.Key, chunk.Value, chunk.Deleted)
 		}
+		if memoryTable.Size() > 0 {
+			if err := db.sstable.Write(memoryTable); err != nil {
+				return err
+			}
+		}
+		walFile.Close()
+		os.Remove(walFilePath)
 	}
+
+	return nil
 }

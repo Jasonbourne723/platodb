@@ -22,11 +22,13 @@ type node struct {
 
 func NewSkipTable() *SkipTable {
 	var maxLevel int32 = 10
-	return &SkipTable{
+	t := &SkipTable{
 		maxLevel: maxLevel,
 		level:    1,
 		head:     NewNode(maxLevel),
 	}
+	t.scanPos = t.head
+	return t
 }
 
 // 新建节点
@@ -43,7 +45,7 @@ func NewNode(level int32) *node {
 }
 
 // 插入数据
-func (s *SkipTable) Set(key string, value []byte) {
+func (s *SkipTable) Set(key string, value []byte, deleted bool) {
 
 	var level int32
 	if s.head.next[0] == nil {
@@ -62,7 +64,7 @@ func (s *SkipTable) Set(key string, value []byte) {
 	var newNode = NewNode(level)
 	newNode.chunk.Key = key
 	newNode.chunk.Value = value
-	newNode.chunk.Deleted = false
+	newNode.chunk.Deleted = deleted
 
 	node := s.head
 	for i := s.level - 1; i >= 0; i-- {
@@ -72,7 +74,7 @@ func (s *SkipTable) Set(key string, value []byte) {
 		if level > i {
 			if node.chunk.Key == key {
 				node.chunk.Value = value
-				node.chunk.Deleted = false
+				node.chunk.Deleted = deleted
 			} else {
 				if node.next[i] == nil {
 					node.next[i] = newNode
@@ -105,21 +107,6 @@ func (s *SkipTable) Get(key string) []byte {
 	}
 
 	return nil
-}
-
-// 删除数据
-func (s *SkipTable) Del(key string) {
-	node := s.head
-	for i := s.level - 1; i >= 0; i-- {
-		for node.next[i] != nil && node.next[i].chunk.Key <= key {
-			if node.next[i].chunk.Key == key {
-				node.next[i].chunk.Deleted = true
-				return
-			} else {
-				node = node.next[i]
-			}
-		}
-	}
 }
 
 // 随机level

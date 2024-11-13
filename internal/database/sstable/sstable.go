@@ -53,7 +53,7 @@ func (s *SSTable) load() error {
 // 生成下一个segmentId
 func (s *SSTable) generateSegmentId() int64 {
 	if len(s.Segments) == 0 {
-		return 0
+		return 1
 	}
 	return s.Segments[len(s.Segments)-1].id + 1
 }
@@ -66,7 +66,7 @@ func (s *SSTable) Write(scanner common.Scanner) error {
 		return err
 	}
 
-	if scanner.Scan() {
+	for scanner.Scan() {
 		chunk := scanner.ScanValue()
 		seg.Write(chunk)
 	}

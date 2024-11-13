@@ -1,9 +1,9 @@
 package sstable
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path"
@@ -33,7 +33,6 @@ type Segment struct {
 	file     *os.File
 	filePath string
 	closed   bool
-	writer   *bufio.Writer
 	blocks   []Block
 	size     int64
 	utils    *common.Utils
@@ -49,14 +48,11 @@ func NewSegment(root string, id int64) (*Segment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("segment文件打开失败:%w", err)
 	}
-
-	blockCount := int(math.Ceil(float64(SEGMENT_SIZE) / float64(BLOCK_SIZE)))
 	return &Segment{
 		id:       id,
 		file:     file,
 		filePath: filePath,
-		writer:   bufio.NewWriter(file),
-		blocks:   make([]Block, 0, blockCount),
+		blocks:   make([]Block, 0, 50),
 		utils:    common.NewUtils(),
 	}, nil
 }
@@ -99,6 +95,7 @@ func (s *Segment) Write(chunk *common.Chunk) error {
 	if err != nil {
 		return err
 	}
+
 	l := int64(len(data))
 
 	if l > BLOCK_SIZE {
@@ -110,10 +107,12 @@ func (s *Segment) Write(chunk *common.Chunk) error {
 }
 
 // 获取最后一个块，如果最后一个块容量不足，会新建一个块
-func (s Segment) getLatestEnonghBlock(l int64) *Block {
+func (s *Segment) getLatestEnonghBlock(l int64) *Block {
 	length := len(s.blocks)
 	if length == 0 || !s.blocks[length-1].Enough(l) {
-		s.blocks = append(s.blocks, *NewBlock(&s, int64(length*BLOCK_SIZE)))
+		pos := int64(length * BLOCK_SIZE)
+		s.blocks = append(s.blocks, *NewBlock(s, pos))
+		s.file.Seek(pos, io.SeekStart)
 	}
 	return &s.blocks[len(s.blocks)-1]
 }
@@ -124,7 +123,7 @@ func (s Segment) getLatestEnonghBlock(l int64) *Block {
 func (s *Segment) Get(key string) (chunk *common.Chunk, err error) {
 
 	//初始化blcoks
-	if s.blocks == nil {
+	if len(s.blocks) == 0 {
 
 		blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
 		s.blocks = make([]Block, 0, blockCount)
@@ -145,57 +144,10 @@ func (s *Segment) Get(key string) (chunk *common.Chunk, err error) {
 
 // 同步文件系统
 func (s *Segment) Sync() error {
-	if err := s.writer.Flush(); err != nil {
-		return err
-	}
 	return s.file.Sync()
 }
 
 // 关闭文件流
 func (s *Segment) Close() error {
-	if s.writer != nil {
-		if err := s.writer.Flush(); err != nil {
-			return err
-		}
-	}
 	return s.file.Close()
 }
-
-// 数据编码，将key-value转为二进制字节流
-// func (s *Segment) Encode(chunk *common.Chunk) ([]byte, error) {
-// 	s.buf.Reset()
-
-// 	deleted := uint8(0)
-// 	if chunk.Deleted {
-// 		deleted = 1
-// 		chunk.Value = nil
-// 	}
-// 	if err := s.buf.WriteByte(deleted); err != nil {
-// 		return nil, err
-// 	}
-
-// 	keyBytes := []byte(chunk.Key)
-// 	keyLen := uint8(len(keyBytes))
-
-// 	crc := crc32.ChecksumIEEE(append(keyBytes, chunk.Value...))
-// 	if err := binary.Write(s.buf, binary.BigEndian, crc); err != nil {
-// 		return nil, err
-// 	}
-// 	if err := s.buf.WriteByte(keyLen); err != nil {
-// 		return nil, err
-// 	}
-// 	if _, err := s.buf.Write(keyBytes); err != nil {
-// 		return nil, err
-// 	}
-// 	if !chunk.Deleted {
-// 		valueLen := uint16(len(chunk.Value))
-// 		if err := binary.Write(s.buf, binary.BigEndian, valueLen); err != nil {
-// 			return nil, err
-// 		}
-// 		if _, err := s.buf.Write(chunk.Value); err != nil {
-// 			return nil, err
-// 		}
-// 	}
-
-// 	return s.buf.Bytes(), nil
-// }

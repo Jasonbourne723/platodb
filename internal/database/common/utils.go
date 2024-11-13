@@ -13,7 +13,9 @@ func NewUtils() *Utils {
 		return &bytes.Buffer{}
 	}
 
-	return &Utils{}
+	return &Utils{
+		pool: p,
+	}
 }
 
 type Utils struct {
