@@ -85,6 +85,9 @@ func (b *Block) LoadDataFromDisk() error {
 			break
 		}
 		crc := binary.BigEndian.Uint32(buf[pos : pos+4])
+		if crc == 0 {
+			break
+		}
 		pos += 4
 
 		// 获取 key 的长度并读取 key

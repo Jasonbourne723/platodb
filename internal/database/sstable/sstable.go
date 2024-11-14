@@ -6,20 +6,16 @@ import (
 	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
 
-const (
-	Root = "D://platodb//"
-)
-
 type SSTable struct {
 	Segments []*Segment
 	Root     string
 }
 
 // 创建sstable
-func NewSSTable() (*SSTable, error) {
+func NewSSTable(root string) (*SSTable, error) {
 
 	sst := &SSTable{
-		Root:     Root,
+		Root:     root,
 		Segments: make([]*Segment, 0, 10),
 	}
 	err := sst.load()

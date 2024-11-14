@@ -7,7 +7,14 @@ import (
 	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
 
-type SkipTable struct {
+type Memorytable interface {
+	Set(key string, value []byte, deleted bool)
+	Get(key string) []byte
+	Size() int64
+	common.Scanner
+}
+
+type DefaultMemoryTable struct {
 	maxLevel int32
 	head     *node
 	level    int32
@@ -22,9 +29,9 @@ type node struct {
 	chunk *common.Chunk
 }
 
-func NewSkipTable() *SkipTable {
+func NewMemoryTable() *DefaultMemoryTable {
 	var maxLevel int32 = 10
-	t := &SkipTable{
+	t := &DefaultMemoryTable{
 		maxLevel: maxLevel,
 		level:    1,
 		head:     NewNode(maxLevel),
@@ -48,7 +55,7 @@ func NewNode(level int32) *node {
 }
 
 // 插入数据
-func (s *SkipTable) Set(key string, value []byte, deleted bool) {
+func (s *DefaultMemoryTable) Set(key string, value []byte, deleted bool) {
 
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -96,7 +103,7 @@ func (s *SkipTable) Set(key string, value []byte, deleted bool) {
 }
 
 // 查询数据
-func (s *SkipTable) Get(key string) []byte {
+func (s *DefaultMemoryTable) Get(key string) []byte {
 
 	s.lock.RLocker().Lock()
 	defer s.lock.RLocker().Unlock()
@@ -119,7 +126,7 @@ func (s *SkipTable) Get(key string) []byte {
 }
 
 // 随机level
-func (s *SkipTable) randomLevel() int32 {
+func (s *DefaultMemoryTable) randomLevel() int32 {
 
 	level := 1
 
@@ -134,7 +141,7 @@ func (s *SkipTable) randomLevel() int32 {
 }
 
 // 内存数据字节数
-func (s *SkipTable) Size() int64 {
+func (s *DefaultMemoryTable) Size() int64 {
 
 	s.lock.RLocker().Lock()
 	defer s.lock.RLocker().Unlock()
@@ -142,7 +149,7 @@ func (s *SkipTable) Size() int64 {
 	return s.allSize
 }
 
-func (s *SkipTable) Scan() bool {
+func (s *DefaultMemoryTable) Scan() bool {
 	if s.scanPos.next[0] == nil {
 		return false
 	}
@@ -150,6 +157,6 @@ func (s *SkipTable) Scan() bool {
 	return true
 }
 
-func (s *SkipTable) ScanValue() *common.Chunk {
+func (s *DefaultMemoryTable) ScanValue() *common.Chunk {
 	return s.scanPos.chunk
 }

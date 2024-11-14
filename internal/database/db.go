@@ -13,6 +13,10 @@ import (
 	"github.com/Jasonbourne723/platodb/internal/database/wal"
 )
 
+const (
+	Root = "D://platodb//"
+)
+
 type DB struct {
 	memoryTables    []memorytable.Memorytable
 	sstable         *sstable.SSTable
@@ -27,7 +31,7 @@ type Options func(db *DB)
 // 创建DB
 func NewDB(options ...Options) (*DB, error) {
 
-	sst, err := sstable.NewSSTable()
+	sst, err := sstable.NewSSTable(Root)
 	if err != nil {
 		return nil, fmt.Errorf("sstable加载失败:%w", err)
 	}
@@ -55,7 +59,7 @@ func NewDB(options ...Options) (*DB, error) {
 }
 
 func (db *DB) createMemoryTable() error {
-	memoryTable := memorytable.NewSkipTable()
+	memoryTable := memorytable.NewMemoryTable()
 	db.memoryTables = append(db.memoryTables, memoryTable)
 	wal, err := wal.NewWalWriterCloser()
 	if err != nil {
@@ -178,7 +182,7 @@ func (db *DB) recoverFromWal(walDir string) error {
 		if err != nil {
 			return err
 		}
-		memoryTable := memorytable.NewSkipTable()
+		memoryTable := memorytable.NewMemoryTable()
 		log.Println("wal崩溃恢复开始")
 		for {
 			chunk, err := wal.Read()

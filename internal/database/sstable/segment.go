@@ -8,6 +8,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
@@ -31,7 +32,7 @@ type Segment struct {
 	id       int64
 	file     *os.File
 	filePath string
-	closed   bool
+	closed   int32
 	blocks   []Block
 	size     int64
 	utils    *common.Utils
@@ -80,7 +81,7 @@ func LoadSegment(root string, name string) (*Segment, error) {
 		id:       int64(id),
 		filePath: filePath,
 		file:     file,
-		closed:   false,
+		closed:   0,
 		size:     fileInfo.Size(),
 	}
 
@@ -149,5 +150,8 @@ func (s *Segment) Sync() error {
 
 // 关闭文件流
 func (s *Segment) Close() error {
-	return s.file.Close()
+	if atomic.CompareAndSwapInt32(&s.closed, 0, 1) {
+		return s.file.Close()
+	}
+	return nil
 }

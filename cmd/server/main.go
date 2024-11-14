@@ -25,30 +25,10 @@ func main() {
 
 	elapsed := time.Since(start)
 	fmt.Printf("写入耗时 elapsed: %v\n", elapsed)
-	// db.Set("key:1", []byte("value1"))
-	// db.Set("key:2", []byte("value2"))
-	// db.Set("key:3", []byte("value3"))
 
-	// for _, v := range [...]int{1, 2, 3} {
-	// 	print(db, v)
-	// }
-
-	// db.Del("key:2")
-
-	// fmt.Printf("\"-----------\": %v\n", "-----------")
-
-	// for _, v := range [...]int{1, 2, 3} {
-	// 	print(db, v)
-	// }
-
-	// db.Set("key:2", []byte("value5"))
-	// db.Set("key:1", []byte("value6"))
-
-	// fmt.Printf("\"-----------\": %v\n", "-----------")
-
-	// for i := 0; i < 1000000; i++ {
-	// 	print(db, i)
-	// }
+	for i := 0; i < 10000; i++ {
+		print(db, i)
+	}
 	var a int
 	fmt.Scanln(&a)
 
