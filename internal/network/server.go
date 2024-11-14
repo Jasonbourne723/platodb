@@ -2,44 +2,96 @@ package network
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strconv"
 	"strings"
 )
 
+type Options func(s *Server)
+
+func NewServer(ctx context.Context, processor *commandProcessor, options ...Options) (*Server, error) {
+	s := &Server{
+		processor: processor,
+		ctx:       ctx,
+	}
+
+	for _, option := range options {
+		option(s)
+	}
+	return s, nil
+}
+
+func WithAddress(address string) Options {
+	return func(s *Server) {
+		s.address = address
+	}
+}
+
+type Server struct {
+	address   string
+	processor *commandProcessor
+	listener  net.Listener
+	ctx       context.Context
+}
+
 type Session struct {
 	authenticated bool
 }
 
-type Server struct {
-}
+func (s *Server) Listen() (err error) {
 
-var processer = NewCommandProcesser()
-
-func (c *Server) Listen() {
-
-	listener, err := net.Listen("tcp", "127.0.0.1:6399")
+	s.listener, err = net.Listen("tcp", s.address)
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
-		return
+		return err
 	}
-	defer listener.Close()
+	defer s.listener.Close()
 	fmt.Println("TCP server listening on port 6399")
 
 	for {
-		conn, err := listener.Accept()
+
+		conn, err := s.listener.Accept()
 		if err != nil {
+			if s.ctx.Err() != nil {
+				log.Println("Listener closed, stopping accept loop")
+				return nil
+			}
 			fmt.Printf("err: %v\n", err)
 			continue
 		}
-		go HandleConnection(conn)
+		go s.HandleConnection(conn)
 	}
 
 }
 
-func HandleConnection(conn net.Conn) {
+func (s *Server) Shutdown(ctx context.Context) error {
+
+	if err := s.listener.Close(); err != nil {
+		return err
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		s.processor.flush()
+	}()
+
+	select {
+	case <-done:
+		log.Println("Server shutdown completed successfully")
+		return nil
+	case <-ctx.Done():
+		log.Println("Shutdown timed out")
+		return ctx.Err()
+	}
+}
+
+func (s *Server) HandleConnection(conn net.Conn) {
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
@@ -48,8 +100,9 @@ func HandleConnection(conn net.Conn) {
 	for {
 		command, args, err := parseRESP(reader)
 		if err != nil {
-			if err == io.EOF {
-				return
+			var opErr *net.OpError
+			if errors.As(err, &opErr) {
+				break
 			}
 			conn.Write([]byte("-ERR " + err.Error() + "\r\n"))
 			continue
@@ -60,8 +113,10 @@ func HandleConnection(conn net.Conn) {
 			continue
 		}
 
-		if handler, ok := processer.commands[command]; ok {
-			handler(args, session)
+		if handler, ok := s.processor.commands[command]; ok {
+			rep := handler(args, session)
+			conn.Write([]byte(rep))
+			continue
 		} else {
 			conn.Write([]byte("-ERR unknown command\r\n"))
 		}

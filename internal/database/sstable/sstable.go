@@ -90,3 +90,10 @@ func (s *SSTable) Get(key string) ([]byte, error) {
 	}
 	return nil, nil
 }
+
+func (s *SSTable) Close() {
+
+	for i := range s.Segments {
+		s.Segments[i].Close()
+	}
+}

@@ -1,11 +1,13 @@
 package database
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Jasonbourne723/platodb/internal/database/common"
 	"github.com/Jasonbourne723/platodb/internal/database/memorytable"
@@ -23,6 +25,7 @@ type DB struct {
 	memoryTableLock *sync.RWMutex
 	flushLock       *sync.Mutex
 	isFlushing      bool
+	isShutdonw      int32
 	walMap          map[memorytable.Memorytable]wal.WalWriterCloser
 }
 
@@ -69,8 +72,18 @@ func (db *DB) createMemoryTable() error {
 	return nil
 }
 
+func (db *DB) removeMemoryTable() {
+	db.walMap[db.memoryTables[0]].Close()
+	delete(db.walMap, db.memoryTables[0])
+	db.memoryTables = db.memoryTables[1:]
+}
+
 // 查询key
 func (db *DB) Get(key string) ([]byte, error) {
+
+	if atomic.LoadInt32(&db.isShutdonw) == 1 {
+		return nil, errors.New("database is shutting down")
+	}
 
 	db.memoryTableLock.RLocker().Lock()
 	defer db.memoryTableLock.RLocker().Unlock()
@@ -88,6 +101,9 @@ func (db *DB) Get(key string) ([]byte, error) {
 // 写入key-value
 func (db *DB) Set(key string, value []byte) error {
 
+	if atomic.LoadInt32(&db.isShutdonw) == 1 {
+		return errors.New("database is shutting down")
+	}
 	db.memoryTableLock.RLocker().Lock()
 	defer db.memoryTableLock.RLocker().Unlock()
 
@@ -111,6 +127,10 @@ func (db *DB) Set(key string, value []byte) error {
 
 // 删除key
 func (db *DB) Del(key string) error {
+
+	if atomic.LoadInt32(&db.isShutdonw) == 1 {
+		return errors.New("database is shutting down")
+	}
 
 	db.memoryTableLock.RLocker().Lock()
 	defer db.memoryTableLock.RLocker().Unlock()
@@ -137,6 +157,12 @@ func (db *DB) initiateFlush() {
 	}
 	db.isFlushing = true
 
+	db.memoryTableLock.Lock()
+	defer db.memoryTableLock.Unlock()
+	if err := db.createMemoryTable(); err != nil {
+		log.Fatal(fmt.Errorf("创建内存表失败，%w", err))
+	}
+
 	go func() {
 		db.Flush()
 		db.flushLock.Lock()
@@ -148,12 +174,6 @@ func (db *DB) initiateFlush() {
 // 内存表写入sstable
 func (db *DB) Flush() {
 
-	db.memoryTableLock.Lock()
-	if err := db.createMemoryTable(); err != nil {
-		log.Fatal(fmt.Errorf("创建内存表失败，%w", err))
-	}
-	db.memoryTableLock.Unlock()
-
 	log.Println("开始flush")
 
 	if err := db.sstable.Write(db.memoryTables[0]); err != nil {
@@ -163,10 +183,8 @@ func (db *DB) Flush() {
 	log.Println("flush结束")
 
 	db.memoryTableLock.Lock()
-	db.walMap[db.memoryTables[0]].Close()
-	delete(db.walMap, db.memoryTables[0])
-	db.memoryTables = db.memoryTables[1:]
-	db.memoryTableLock.Unlock()
+	defer db.memoryTableLock.Unlock()
+	db.removeMemoryTable()
 }
 
 // 崩溃恢复
@@ -210,4 +228,20 @@ func (db *DB) recoverFromWal(walDir string) error {
 	}
 
 	return nil
+}
+
+func (db *DB) Shutdown() {
+
+	if !atomic.CompareAndSwapInt32(&db.isShutdonw, 0, 1) {
+		return
+	}
+
+	db.flushLock.Lock()
+	defer db.flushLock.Unlock()
+
+	for len(db.memoryTables) > 0 {
+		db.Flush()
+	}
+
+	db.sstable.Close()
 }
