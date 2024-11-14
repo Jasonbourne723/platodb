@@ -18,12 +18,26 @@ const (
 	SUFFIX = ".log"
 )
 
+type WalWriterCloser interface {
+	WalWriter
+	WalCloser
+}
+
+type WalReaderCloser interface {
+	WalReader
+	WalCloser
+}
+
 type WalReader interface {
 	Read() (*common.Chunk, error)
 }
 
 type WalWriter interface {
 	Write(*common.Chunk) error
+}
+
+type WalCloser interface {
+	Close() error
 }
 
 type Wal struct {
@@ -33,17 +47,21 @@ type Wal struct {
 	reader   *bufio.Reader
 }
 
-func NewWalReader(walFile *os.File) (WalReader, error) {
-	walFile.Seek(0, 0)
+func NewWalReaderCloser(filepath string) (WalReaderCloser, error) {
+
+	walFile, err := os.OpenFile(filepath, os.O_RDWR, 0644)
+	if err != nil {
+		return nil, err
+	}
 	return &Wal{
 		file:     walFile,
-		filePath: "",
+		filePath: filepath,
 		utils:    common.NewUtils(),
 		reader:   bufio.NewReader(walFile),
 	}, nil
 }
 
-func NewWalWriter() (WalWriter, error) {
+func NewWalWriterCloser() (WalWriterCloser, error) {
 	filePath := path.Join(ROOT, time.Now().Format("20060102150405")+SUFFIX)
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
@@ -130,5 +148,14 @@ func (w *Wal) Write(chunk *common.Chunk) error {
 		return err
 	}
 	return nil
-	//return w.file.Sync()
+}
+
+func (w *Wal) Sync() error {
+	return w.file.Sync()
+}
+
+func (w *Wal) Close() error {
+	w.file.Sync()
+	w.file.Close()
+	return os.Remove(w.filePath)
 }

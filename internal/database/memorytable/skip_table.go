@@ -2,6 +2,7 @@ package memorytable
 
 import (
 	"math/rand"
+	"sync"
 
 	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
@@ -12,6 +13,7 @@ type SkipTable struct {
 	level    int32
 	allSize  int64
 	scanPos  *node
+	lock     *sync.RWMutex
 }
 
 type node struct {
@@ -26,6 +28,7 @@ func NewSkipTable() *SkipTable {
 		maxLevel: maxLevel,
 		level:    1,
 		head:     NewNode(maxLevel),
+		lock:     &sync.RWMutex{},
 	}
 	t.scanPos = t.head
 	return t
@@ -46,6 +49,9 @@ func NewNode(level int32) *node {
 
 // 插入数据
 func (s *SkipTable) Set(key string, value []byte, deleted bool) {
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
 	var level int32
 	if s.head.next[0] == nil {
@@ -92,6 +98,9 @@ func (s *SkipTable) Set(key string, value []byte, deleted bool) {
 // 查询数据
 func (s *SkipTable) Get(key string) []byte {
 
+	s.lock.RLocker().Lock()
+	defer s.lock.RLocker().Unlock()
+
 	node := s.head
 	for i := s.level - 1; i >= 0; i-- {
 		for node.next[i] != nil && node.next[i].chunk.Key <= key {
@@ -126,6 +135,10 @@ func (s *SkipTable) randomLevel() int32 {
 
 // 内存数据字节数
 func (s *SkipTable) Size() int64 {
+
+	s.lock.RLocker().Lock()
+	defer s.lock.RLocker().Unlock()
+
 	return s.allSize
 }
 

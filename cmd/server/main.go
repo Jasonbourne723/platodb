@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/Jasonbourne723/platodb/internal/database"
 )
@@ -15,11 +16,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for i := 10000; i < 1000000; i++ {
+	start := time.Now()
+
+	for i := 3000000; i < 4000000; i++ {
 		index := strconv.Itoa(i)
 		db.Set("key:"+index, []byte("value"+index))
 	}
 
+	elapsed := time.Since(start)
+	fmt.Printf("写入耗时 elapsed: %v\n", elapsed)
 	// db.Set("key:1", []byte("value1"))
 	// db.Set("key:2", []byte("value2"))
 	// db.Set("key:3", []byte("value3"))
@@ -41,9 +46,11 @@ func main() {
 
 	// fmt.Printf("\"-----------\": %v\n", "-----------")
 
-	// for i := 0; i < 100000; i++ {
+	// for i := 0; i < 1000000; i++ {
 	// 	print(db, i)
 	// }
+	var a int
+	fmt.Scanln(&a)
 
 }
 

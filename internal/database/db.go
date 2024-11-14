@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"path/filepath"
 	"sync"
 
@@ -20,7 +19,7 @@ type DB struct {
 	memoryTableLock *sync.RWMutex
 	flushLock       *sync.Mutex
 	isFlushing      bool
-	walMap          map[memorytable.Memorytable]wal.WalWriter
+	walMap          map[memorytable.Memorytable]wal.WalWriterCloser
 }
 
 type Options func(db *DB)
@@ -35,7 +34,7 @@ func NewDB(options ...Options) (*DB, error) {
 
 	db := DB{
 		memoryTables:    make([]memorytable.Memorytable, 0, 2),
-		walMap:          make(map[memorytable.Memorytable]wal.WalWriter),
+		walMap:          make(map[memorytable.Memorytable]wal.WalWriterCloser),
 		sstable:         sst,
 		memoryTableLock: &sync.RWMutex{},
 		flushLock:       &sync.Mutex{},
@@ -58,7 +57,7 @@ func NewDB(options ...Options) (*DB, error) {
 func (db *DB) createMemoryTable() error {
 	memoryTable := memorytable.NewSkipTable()
 	db.memoryTables = append(db.memoryTables, memoryTable)
-	wal, err := wal.NewWalWriter()
+	wal, err := wal.NewWalWriterCloser()
 	if err != nil {
 		return err
 	}
@@ -151,15 +150,19 @@ func (db *DB) Flush() {
 	}
 	db.memoryTableLock.Unlock()
 
+	log.Println("开始flush")
+
 	if err := db.sstable.Write(db.memoryTables[0]); err != nil {
 		log.Fatal(fmt.Errorf("内存表持久化异常：%w", err))
 	}
 
+	log.Println("flush结束")
+
 	db.memoryTableLock.Lock()
+	db.walMap[db.memoryTables[0]].Close()
+	delete(db.walMap, db.memoryTables[0])
 	db.memoryTables = db.memoryTables[1:]
 	db.memoryTableLock.Unlock()
-
-	//删除wal
 }
 
 // 崩溃恢复
@@ -171,16 +174,12 @@ func (db *DB) recoverFromWal(walDir string) error {
 	}
 	for _, walFilePath := range files {
 
-		walFile, err := os.OpenFile(walFilePath, os.O_APPEND|os.O_RDWR, 0644)
-		if err != nil {
-			return err
-		}
-		wal, err := wal.NewWalReader(walFile)
+		wal, err := wal.NewWalReaderCloser(walFilePath)
 		if err != nil {
 			return err
 		}
 		memoryTable := memorytable.NewSkipTable()
-
+		log.Println("wal崩溃恢复开始")
 		for {
 			chunk, err := wal.Read()
 			if err != nil {
@@ -192,16 +191,16 @@ func (db *DB) recoverFromWal(walDir string) error {
 			if chunk == nil {
 				break
 			}
-			log.Printf("wal数据恢复,key:%v,value,%v,deleted:%v", chunk.Key, chunk.Value, chunk.Deleted)
+			//log.Printf("wal数据恢复,key:%v,value,%v,deleted:%v", chunk.Key, chunk.Value, chunk.Deleted)
 			memoryTable.Set(chunk.Key, chunk.Value, chunk.Deleted)
 		}
+		log.Println("wal崩溃恢复结束")
 		if memoryTable.Size() > 0 {
 			if err := db.sstable.Write(memoryTable); err != nil {
 				return err
 			}
 		}
-		walFile.Close()
-		if err := os.Remove(walFilePath); err != nil {
+		if err := wal.Close(); err != nil {
 			return err
 		}
 	}
