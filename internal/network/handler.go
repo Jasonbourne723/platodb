@@ -12,7 +12,7 @@ const (
 	requeiredPass = "123"
 )
 
-type commandHandler func(args []string, session *Session) string
+type commandHandler func(args []string) string
 
 type commandProcessor struct {
 	db       *database.DB
@@ -31,11 +31,10 @@ func NewCommandProcessor() *commandProcessor {
 		commands: make(map[string]commandHandler),
 	}
 
-	processer.RegiseterCommand("auth", processer.authCommand)
 	processer.RegiseterCommand("ping", processer.pingCommand)
 	processer.RegiseterCommand("get", processer.getCommand)
 	processer.RegiseterCommand("set", processer.setCommand)
-	processer.RegiseterCommand("del", processer.authCommand)
+	processer.RegiseterCommand("del", processer.delCommand)
 
 	return processer
 }
@@ -48,19 +47,11 @@ func (processor *commandProcessor) flush() {
 	processor.db.Shutdown()
 }
 
-func (processer *commandProcessor) pingCommand(args []string, session *Session) string {
+func (processer *commandProcessor) pingCommand(args []string) string {
 	return "+PONG\r\n"
 }
 
-func (processer *commandProcessor) authCommand(args []string, session *Session) string {
-	if args[0] == requeiredPass {
-		session.authenticated = true
-		return "+OK\r\n"
-	}
-	return "-ERR Authication failed"
-}
-
-func (processer *commandProcessor) setCommand(args []string, session *Session) string {
+func (processer *commandProcessor) setCommand(args []string) string {
 	if len(args) != 2 {
 		return "-ERR wrong number of arguments for 'SET' command\r\n"
 	}
@@ -68,7 +59,7 @@ func (processer *commandProcessor) setCommand(args []string, session *Session) s
 	return "+OK\r\n"
 }
 
-func (processer *commandProcessor) getCommand(args []string, session *Session) string {
+func (processer *commandProcessor) getCommand(args []string) string {
 	if len(args) != 1 {
 		return "-ERR wrong number of arguments for 'GET' command\r\n"
 	}
@@ -79,7 +70,7 @@ func (processer *commandProcessor) getCommand(args []string, session *Session) s
 	return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
 }
 
-func (processer *commandProcessor) delCommand(args []string, session *Session) string {
+func (processer *commandProcessor) delCommand(args []string) string {
 	if len(args) != 1 {
 		return "-ERR wrong number of arguments for 'GET' command\r\n"
 	}

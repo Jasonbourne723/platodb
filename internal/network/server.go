@@ -113,8 +113,18 @@ func (s *Server) HandleConnection(conn net.Conn) {
 			continue
 		}
 
+		if command == "AUTH" {
+			if args[0] == requeiredPass {
+				session.authenticated = true
+				conn.Write([]byte("+OK\r\n"))
+				continue
+			}
+			conn.Write([]byte("-ERR Authication failed"))
+			continue
+		}
+
 		if handler, ok := s.processor.commands[command]; ok {
-			rep := handler(args, session)
+			rep := handler(args)
 			conn.Write([]byte(rep))
 			continue
 		} else {
