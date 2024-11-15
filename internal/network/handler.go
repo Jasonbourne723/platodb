@@ -35,12 +35,17 @@ func NewCommandProcessor() *commandProcessor {
 	processer.RegiseterCommand("ping", processer.pingCommand)
 	processer.RegiseterCommand("get", processer.getCommand)
 	processer.RegiseterCommand("set", processer.setCommand)
+	processer.RegiseterCommand("del", processer.authCommand)
 
 	return processer
 }
 
 func (processer *commandProcessor) RegiseterCommand(command string, handler commandHandler) {
 	processer.commands[strings.ToUpper(command)] = handler
+}
+
+func (processor *commandProcessor) flush() {
+	processor.db.Shutdown()
 }
 
 func (processer *commandProcessor) pingCommand(args []string, session *Session) string {
@@ -74,7 +79,13 @@ func (processer *commandProcessor) getCommand(args []string, session *Session) s
 	return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
 }
 
-func (processor *commandProcessor) flush() {
-
-	processor.db.Shutdown()
+func (processer *commandProcessor) delCommand(args []string, session *Session) string {
+	if len(args) != 1 {
+		return "-ERR wrong number of arguments for 'GET' command\r\n"
+	}
+	err := processer.db.Del(args[0])
+	if err != nil {
+		return "-"
+	}
+	return "+OK\r\n"
 }
