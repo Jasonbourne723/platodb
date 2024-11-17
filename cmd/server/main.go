@@ -2,22 +2,33 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/Jasonbourne723/platodb/config"
+	"github.com/Jasonbourne723/platodb/internal/database"
 	"github.com/Jasonbourne723/platodb/internal/network"
 )
 
 func main() {
 
-	processor := network.NewCommandProcessor()
+	cfg, err := config.LoadConfig(".")
+	if err != nil {
+		log.Fatal(fmt.Errorf("配置加载失败:%w", err))
+	}
+
+	db, err := database.NewDB(database.WithDir(cfg.Database.DataDir, cfg.Database.WalDir))
+	if err != nil {
+		log.Fatal(err)
+	}
+	processor := network.NewCommandProcessor(db)
 
 	ctx, cancel := context.WithCancel(context.Background())
-
-	srv, err := network.NewServer(ctx, processor, network.WithAddress("0.0.0.0:6399"))
+	srv, err := network.NewServer(ctx, processor, network.WithAddress(cfg.Network.Address))
 	if err != nil {
 		log.Fatal(err)
 	}

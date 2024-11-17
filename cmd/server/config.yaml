@@ -1,0 +1,16 @@
+database:
+  data_dir: "/var/platodb"       # 数据存储路径
+  wal_dir: "/var/platodb/wal"    # WAL 日志路径
+  segment_size: 8               # 每个段文件的大小(单位: MB)
+  flush_interval: 10             # 内存表自动刷新到磁盘的时间间隔(单位: 秒)
+
+memory_table:
+  max_size: 16                   # 内存表最大大小 (单位: MB)
+  type: "skiplist"               # 内存表的类型: skiplist 或 btree
+
+network:
+  address: "0.0.0.0:6399"
+
+logging:
+  level: "info"                  # 日志级别: debug, info, warn, error
+  log_file: "/var/platodb/logs/db.log" # 日志文件路径
