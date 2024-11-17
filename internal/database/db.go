@@ -15,10 +15,6 @@ import (
 	"github.com/Jasonbourne723/platodb/internal/database/wal"
 )
 
-const (
-	Root = "D://platodb//"
-)
-
 type DB struct {
 	memoryTables    []memorytable.Memorytable
 	sstable         *sstable.SSTable
@@ -27,6 +23,9 @@ type DB struct {
 	isFlushing      bool
 	isShutdonw      int32
 	walMap          map[memorytable.Memorytable]wal.WalWriterCloser
+	segmentSize     int64
+	dataDir         string
+	walDir          string
 }
 
 type Options func(db *DB)
@@ -34,37 +33,48 @@ type Options func(db *DB)
 // 创建DB
 func NewDB(options ...Options) (*DB, error) {
 
-	sst, err := sstable.NewSSTable(Root)
-	if err != nil {
-		return nil, fmt.Errorf("sstable加载失败:%w", err)
-	}
-
 	db := DB{
 		memoryTables:    make([]memorytable.Memorytable, 0, 2),
 		walMap:          make(map[memorytable.Memorytable]wal.WalWriterCloser),
-		sstable:         sst,
+		sstable:         nil,
 		memoryTableLock: &sync.RWMutex{},
 		flushLock:       &sync.Mutex{},
 		isFlushing:      false,
-	}
-
-	if err := db.recoverFromWal("D://platodb//wal//"); err != nil {
-		return nil, err
-	}
-	if err := db.createMemoryTable(); err != nil {
-		return nil, err
+		segmentSize:     8 * common.MB,
+		dataDir:         "/var/platodb",
+		walDir:          "/var/platodb/wal",
 	}
 
 	for _, option := range options {
 		option(&db)
 	}
+
+	sst, err := sstable.NewSSTable(db.dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("sstable加载失败:%w", err)
+	}
+	db.sstable = sst
+
+	if err := db.recoverFromWal(db.walDir); err != nil {
+		return nil, err
+	}
+	if err := db.createMemoryTable(); err != nil {
+		return nil, err
+	}
 	return &db, nil
+}
+
+func WithDir(dataDir string, walDir string) Options {
+	return func(db *DB) {
+		db.dataDir = dataDir
+		db.walDir = walDir
+	}
 }
 
 func (db *DB) createMemoryTable() error {
 	memoryTable := memorytable.NewMemoryTable()
 	db.memoryTables = append(db.memoryTables, memoryTable)
-	wal, err := wal.NewWalWriterCloser()
+	wal, err := wal.NewWalWriterCloser(db.walDir)
 	if err != nil {
 		return err
 	}
@@ -118,7 +128,7 @@ func (db *DB) Set(key string, value []byte) error {
 	}
 
 	memeryTable.Set(key, value, false)
-	if memeryTable.Size() > sstable.SEGMENT_SIZE {
+	if memeryTable.Size() > db.segmentSize {
 		db.initiateFlush()
 	}
 
@@ -189,6 +199,10 @@ func (db *DB) Flush() {
 
 // 崩溃恢复
 func (db *DB) recoverFromWal(walDir string) error {
+
+	if err := common.EnsureDirExists(walDir); err != nil {
+		return err
+	}
 
 	files, err := filepath.Glob(filepath.Join(walDir, "*.log"))
 	if err != nil {

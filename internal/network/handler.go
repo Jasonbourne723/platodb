@@ -2,7 +2,6 @@ package network
 
 import (
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/Jasonbourne723/platodb/internal/database"
@@ -19,12 +18,7 @@ type commandProcessor struct {
 	commands map[string]commandHandler
 }
 
-func NewCommandProcessor() *commandProcessor {
-
-	db, err := database.NewDB()
-	if err != nil {
-		log.Fatal(err)
-	}
+func NewCommandProcessor(db *database.DB) *commandProcessor {
 
 	processer := &commandProcessor{
 		db:       db,

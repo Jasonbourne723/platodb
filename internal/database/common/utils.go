@@ -3,7 +3,10 @@ package common
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
+	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -62,4 +65,20 @@ func (u *Utils) Encode(chunk *Chunk) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+func EnsureDirExists(dirPath string) error {
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		err = os.MkdirAll(absPath, 0774)
+		if err != nil {
+			return fmt.Errorf("failed to create directory: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("failed to check directory: %w", err)
+	}
+	return nil
 }

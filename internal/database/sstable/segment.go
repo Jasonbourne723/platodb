@@ -14,16 +14,7 @@ import (
 )
 
 const (
-	_  = iota
-	KB = 1 << (10 * iota)
-	MB = 1 << (10 * iota)
-	GB = 1 << (10 * iota)
-
-	BLOCK_SIZE   = 64 * KB
-	SEGMENT_SIZE = 20 * MB
-)
-
-const (
+	BLOCK_SIZE    = 64 * common.KB
 	FILEMODE_PERM = 0644
 	SUFFIX        = "seg"
 )

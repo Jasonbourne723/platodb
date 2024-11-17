@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	ROOT   = "D://platodb//wal/"
 	SUFFIX = ".log"
 )
 
@@ -61,8 +60,8 @@ func NewWalReaderCloser(filepath string) (WalReaderCloser, error) {
 	}, nil
 }
 
-func NewWalWriterCloser() (WalWriterCloser, error) {
-	filePath := path.Join(ROOT, time.Now().Format("20060102150405")+SUFFIX)
+func NewWalWriterCloser(walDir string) (WalWriterCloser, error) {
+	filePath := path.Join(walDir, time.Now().Format("20060102150405")+SUFFIX)
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err

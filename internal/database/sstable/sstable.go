@@ -27,6 +27,11 @@ func NewSSTable(root string) (*SSTable, error) {
 
 // 加载sstable信息
 func (s *SSTable) load() error {
+
+	if err := common.EnsureDirExists(s.Root); err != nil {
+		return err
+	}
+
 	files, err := os.ReadDir(s.Root)
 	if err != nil {
 		return err
