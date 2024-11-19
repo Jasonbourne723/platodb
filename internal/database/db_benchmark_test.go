@@ -15,7 +15,7 @@ const (
 
 // 初始化数据库并预填充数据
 func setupDB(b *testing.B) *DB {
-	db, err := NewDB()
+	db, err := NewDB(WithDir("D:\\platodb", "D:\\platodb\\wal"))
 	if err != nil {
 		b.Fatalf("Failed to initialize database: %v", err)
 	}

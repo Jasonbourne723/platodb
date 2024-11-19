@@ -1,6 +1,8 @@
 package sstable
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -16,23 +18,30 @@ import (
 const (
 	BLOCK_SIZE    = 64 * common.KB
 	FILEMODE_PERM = 0644
-	SUFFIX        = "seg"
+	SEG_SUFFIX    = ".seg"
+	SP_SUFFIX     = ".sp"
 )
 
+type snapshotBlock struct {
+	min string
+	max string
+}
+
 type segment struct {
-	id       int64
-	file     *os.File
-	filePath string
-	closed   int32
-	blocks   []block
-	size     int64
-	utils    *common.Utils
+	id        int64
+	file      *os.File
+	filePath  string
+	closed    int32
+	blocks    []block
+	snapshots []snapshotBlock
+	size      int64
+	utils     *common.Utils
 }
 
 // 创建一个新的segment文件
 func newSegment(root string, id int64) (*segment, error) {
 
-	name := fmt.Sprintf("%06d.%s", id, SUFFIX)
+	name := fmt.Sprintf("%06d%s", id, SEG_SUFFIX)
 	filePath := path.Join(root, name)
 
 	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, FILEMODE_PERM)
@@ -40,17 +49,18 @@ func newSegment(root string, id int64) (*segment, error) {
 		return nil, fmt.Errorf("segment文件打开失败:%w", err)
 	}
 	return &segment{
-		id:       id,
-		file:     file,
-		filePath: filePath,
-		blocks:   make([]block, 0, 50),
-		utils:    common.NewUtils(),
+		id:        id,
+		file:      file,
+		filePath:  filePath,
+		blocks:    make([]block, 0, 50),
+		snapshots: make([]snapshotBlock, 0, 50),
+		utils:     common.NewUtils(),
 	}, nil
 }
 
 // 加载已存在的segment文件
 func loadSegment(root string, name string) (*segment, error) {
-	if !strings.HasSuffix(name, SUFFIX) {
+	if !strings.HasSuffix(name, SEG_SUFFIX) {
 		return nil, errors.New("FILE FORMAT ERROR")
 	}
 	id, err := strconv.Atoi(strings.Split(name, ".")[0])
@@ -75,13 +85,17 @@ func loadSegment(root string, name string) (*segment, error) {
 		closed:   0,
 		size:     fileInfo.Size(),
 	}
+	seg.initBlocks()
 
 	return seg, nil
 }
 
+func (s *segment) getSnapshotFilePath() string {
+	return strings.TrimSuffix(s.filePath, SEG_SUFFIX) + SP_SUFFIX
+}
+
 // 写入数据
 func (s *segment) write(chunk *common.Chunk) error {
-
 	data, err := s.utils.Encode(chunk)
 	if err != nil {
 		return err
@@ -102,17 +116,6 @@ func (s *segment) write(chunk *common.Chunk) error {
 // ok为true，表示查询到key-value；
 func (s *segment) get(key string) (chunk *common.Chunk, err error) {
 
-	//初始化blcoks
-	if len(s.blocks) == 0 {
-
-		blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
-		s.blocks = make([]block, 0, blockCount)
-
-		for i := 0; i < blockCount; i++ {
-			s.blocks = append(s.blocks, newBlock(s, int64(i*BLOCK_SIZE)))
-		}
-	}
-
 	for i := range s.blocks {
 		chunk, err := s.blocks[i].get(key)
 		if err != nil || chunk != nil {
@@ -120,6 +123,52 @@ func (s *segment) get(key string) (chunk *common.Chunk, err error) {
 		}
 	}
 	return nil, nil
+}
+
+func (s *segment) generateSnapshot() {
+
+	spFilePath := s.getSnapshotFilePath()
+	f, err := os.OpenFile(spFilePath, os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+
+	}
+
+	buf := &bytes.Buffer{}
+	blockCount := make([]byte, 4)
+	binary.BigEndian.PutUint32(blockCount, uint32(len(s.blocks)))
+	buf.Write(blockCount)
+	buf.Write([]byte("\r\n"))
+	for i := range s.blocks {
+		chunks := s.blocks[i].chunks
+		min := chunks[0]
+		minKeyLen := make([]byte, 4)
+		binary.BigEndian.PutUint32(minKeyLen, uint32(len(min.Key)))
+		buf.Write(minKeyLen)
+		buf.Write([]byte("\r\n"))
+		buf.Write([]byte(min.Key))
+		buf.Write([]byte("\r\n"))
+
+		max := chunks[len(chunks)-1]
+		maxKeyLen := make([]byte, 4)
+		binary.BigEndian.PutUint32(maxKeyLen, uint32(len(max.Key)))
+		buf.Write(maxKeyLen)
+		buf.Write([]byte("\r\n"))
+		buf.Write([]byte(max.Key))
+		buf.Write([]byte("\r\n"))
+	}
+
+	f.Write(buf.Bytes())
+
+}
+
+func (s *segment) initBlocks() {
+
+	blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
+	s.blocks = make([]block, 0, blockCount)
+
+	for i := 0; i < blockCount; i++ {
+		s.blocks = append(s.blocks, newBlock(s, int64(i*BLOCK_SIZE)))
+	}
 }
 
 // 同步文件系统
