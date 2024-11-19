@@ -64,10 +64,16 @@ func NewDB(options ...Options) (*DB, error) {
 	return &db, nil
 }
 
-func WithDir(dataDir string, walDir string) Options {
+func Dir(dataDir string, walDir string) Options {
 	return func(db *DB) {
 		db.dataDir = dataDir
 		db.walDir = walDir
+	}
+}
+
+func SegmentSize(segmentSize int32) Options {
+	return func(db *DB) {
+		db.segmentSize = int64(segmentSize * common.MB)
 	}
 }
 

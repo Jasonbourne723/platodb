@@ -71,7 +71,7 @@ func (s *SSTable) Write(scanner common.Scanner) error {
 		chunk := scanner.ScanValue()
 		seg.write(chunk)
 	}
-
+	seg.generateSnapshot()
 	s.Segments = append(s.Segments, seg)
 	return seg.sync()
 }

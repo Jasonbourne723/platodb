@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"math"
+	"io"
 	"os"
 	"path"
 	"strconv"
@@ -85,7 +85,10 @@ func loadSegment(root string, name string) (*segment, error) {
 		closed:   0,
 		size:     fileInfo.Size(),
 	}
-	seg.initBlocks()
+	err = seg.initBlocks()
+	if err != nil {
+		return nil, err
+	}
 
 	return seg, nil
 }
@@ -116,59 +119,142 @@ func (s *segment) write(chunk *common.Chunk) error {
 // ok为true，表示查询到key-value；
 func (s *segment) get(key string) (chunk *common.Chunk, err error) {
 
-	for i := range s.blocks {
-		chunk, err := s.blocks[i].get(key)
+	if len(s.snapshots) == 0 {
+		return nil, nil
+	}
+
+	pos, ok := s.middleSearch(key, 0, int64(len(s.snapshots)-1))
+	if ok {
+		chunk, err := s.blocks[pos].get(key)
 		if err != nil || chunk != nil {
 			return chunk, err
 		}
 	}
 	return nil, nil
+
+	// for i := range s.blocks {
+	// 	chunk, err := s.blocks[i].get(key)
+	// 	if err != nil || chunk != nil {
+	// 		return chunk, err
+	// 	}
+	// }
+	// return nil, nil
 }
 
-func (s *segment) generateSnapshot() {
+// 二分法 快速查询
+func (b *segment) middleSearch(key string, posBegin int64, posEnd int64) (pos int64, ok bool) {
+
+	if key < b.snapshots[posBegin].min || key > b.snapshots[posEnd].max {
+		return -1, false
+	}
+	if key >= b.snapshots[posBegin].min && key <= b.snapshots[posBegin].max {
+		return posBegin, true
+	}
+	if key >= b.snapshots[posEnd].min && key <= b.snapshots[posEnd].max {
+		return posEnd, true
+	}
+	if posEnd == posBegin || posEnd == posBegin+1 {
+		return -1, false
+	}
+	posMiddle := (posBegin + posEnd) / 2
+	if key >= b.snapshots[posMiddle].min && key <= b.snapshots[posMiddle].max {
+		return posMiddle, true
+	}
+	if key < b.snapshots[posMiddle].min {
+		return b.middleSearch(key, posBegin, posMiddle)
+	}
+	return b.middleSearch(key, posMiddle, posEnd)
+}
+
+func (s *segment) loadSnapshot() error {
+
+	spFilePath := s.getSnapshotFilePath()
+	f, err := os.OpenFile(spFilePath, os.O_RDONLY, 0644)
+	if err != nil {
+		return err
+	}
+
+	for {
+		minKeyLen := make([]byte, 4)
+		if _, err := io.ReadFull(f, minKeyLen); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		minKeyLenUint32 := binary.BigEndian.Uint32(minKeyLen)
+		minKeyBuf := make([]byte, minKeyLenUint32)
+		if _, err := io.ReadFull(f, minKeyBuf); err != nil {
+			return err
+		}
+		minKey := string(minKeyBuf)
+
+		maxKeyLen := make([]byte, 4)
+		if _, err := io.ReadFull(f, maxKeyLen); err != nil {
+			return err
+		}
+		maxKeyLenUint32 := binary.BigEndian.Uint32(maxKeyLen)
+		maxKeyBuf := make([]byte, maxKeyLenUint32)
+		if _, err := io.ReadFull(f, maxKeyBuf); err != nil {
+			return err
+		}
+		maxKey := string(maxKeyBuf)
+
+		s.snapshots = append(s.snapshots, snapshotBlock{
+			minKey, maxKey,
+		})
+	}
+	return nil
+}
+
+// 生成快照文件
+func (s *segment) generateSnapshot() error {
 
 	spFilePath := s.getSnapshotFilePath()
 	f, err := os.OpenFile(spFilePath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-
+		return err
 	}
+	defer f.Close()
 
 	buf := &bytes.Buffer{}
-	blockCount := make([]byte, 4)
-	binary.BigEndian.PutUint32(blockCount, uint32(len(s.blocks)))
-	buf.Write(blockCount)
-	buf.Write([]byte("\r\n"))
 	for i := range s.blocks {
 		chunks := s.blocks[i].chunks
 		min := chunks[0]
 		minKeyLen := make([]byte, 4)
 		binary.BigEndian.PutUint32(minKeyLen, uint32(len(min.Key)))
 		buf.Write(minKeyLen)
-		buf.Write([]byte("\r\n"))
 		buf.Write([]byte(min.Key))
-		buf.Write([]byte("\r\n"))
 
 		max := chunks[len(chunks)-1]
 		maxKeyLen := make([]byte, 4)
 		binary.BigEndian.PutUint32(maxKeyLen, uint32(len(max.Key)))
 		buf.Write(maxKeyLen)
-		buf.Write([]byte("\r\n"))
 		buf.Write([]byte(max.Key))
-		buf.Write([]byte("\r\n"))
+		s.snapshots = append(s.snapshots, snapshotBlock{
+			min: min.Key,
+			max: max.Key,
+		})
 	}
 
 	f.Write(buf.Bytes())
-
+	return f.Sync()
 }
 
-func (s *segment) initBlocks() {
+// 初始化块数据
+func (s *segment) initBlocks() error {
 
-	blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
-	s.blocks = make([]block, 0, blockCount)
+	if err := s.loadSnapshot(); err != nil {
+		return err
+	}
 
-	for i := 0; i < blockCount; i++ {
+	//blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
+	s.blocks = make([]block, 0, len(s.snapshots))
+
+	for i := 0; i < len(s.snapshots); i++ {
 		s.blocks = append(s.blocks, newBlock(s, int64(i*BLOCK_SIZE)))
 	}
+	return nil
 }
 
 // 同步文件系统

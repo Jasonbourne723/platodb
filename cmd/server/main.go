@@ -20,7 +20,7 @@ func main() {
 		log.Fatal(fmt.Errorf("配置加载失败:%w", err))
 	}
 
-	db, err := database.NewDB(database.WithDir(cfg.Database.DataDir, cfg.Database.WalDir))
+	db, err := database.NewDB(database.Dir(cfg.Database.DataDir, cfg.Database.WalDir), database.SegmentSize(int32(cfg.Database.SegmentSize)))
 	if err != nil {
 		log.Fatal(err)
 	}

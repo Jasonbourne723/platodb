@@ -1,9 +1,9 @@
 database:
-  # data_dir: "/var/platodb"       # 数据存储路径
-  data_dir: "D:\\platodb"
-  # wal_dir: "/var/platodb/wal"    # WAL 日志路径
-  wal_dir: "D:\\platodb\\wal"
-  segment_size: 8               # 每个段文件的大小(单位: MB)
+  data_dir: "/var/platodb"       # 数据存储路径
+  # data_dir: "D:\\platodb"
+  wal_dir: "/var/platodb/wal"    # WAL 日志路径
+  # wal_dir: "D:\\platodb\\wal"
+  segment_size: 50               # 每个段文件的大小(单位: MB)
   flush_interval: 10             # 内存表自动刷新到磁盘的时间间隔(单位: 秒)
 
 memory_table:
