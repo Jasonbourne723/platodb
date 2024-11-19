@@ -16,8 +16,8 @@ func TestBlock_AddChunk(t *testing.T) {
 	}
 	defer tempFile.Close()
 
-	seg := &Segment{file: tempFile}
-	block := NewBlock(seg, 0)
+	seg := &segment{file: tempFile}
+	block := newBlock(seg, 0)
 
 	chunk := &common.Chunk{
 		Key:     "key1",
@@ -27,7 +27,7 @@ func TestBlock_AddChunk(t *testing.T) {
 	data := append([]byte{0}, []byte("key1")...) // 模拟存储的数据
 
 	// 添加数据块
-	err = block.AddChunk(chunk, data)
+	err = block.addChunk(chunk, data)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(len(data)), block.size)
 }
@@ -40,8 +40,8 @@ func TestBlock_Get(t *testing.T) {
 	}
 	defer tempFile.Close()
 
-	seg := &Segment{file: tempFile}
-	block := NewBlock(seg, 0)
+	seg := &segment{file: tempFile}
+	block := newBlock(seg, 0)
 
 	// 插入一个数据块
 	chunk := &common.Chunk{
@@ -50,10 +50,10 @@ func TestBlock_Get(t *testing.T) {
 		Deleted: false,
 	}
 	data := append([]byte{0}, []byte("key1")...)
-	block.AddChunk(chunk, data)
+	block.addChunk(chunk, data)
 
 	// 从块中获取数据
-	retrievedChunk, err := block.Get("key1")
+	retrievedChunk, err := block.get("key1")
 	assert.NoError(t, err)
 	assert.NotNil(t, retrievedChunk)
 	assert.Equal(t, "key1", retrievedChunk.Key)
@@ -73,8 +73,8 @@ func TestBlock_LoadDataFromDisk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unable to get file info: %v", err)
 	}
-	seg := &Segment{file: tempFile, size: fileInfo.Size()}
-	block := NewBlock(seg, 0)
+	seg := &segment{file: tempFile, size: fileInfo.Size()}
+	block := newBlock(seg, 0)
 
 	// 模拟写入数据
 	chunk := &common.Chunk{
@@ -83,17 +83,17 @@ func TestBlock_LoadDataFromDisk(t *testing.T) {
 		Deleted: false,
 	}
 	data, _ := common.NewUtils().Encode(chunk)
-	block.AddChunk(chunk, data)
+	block.addChunk(chunk, data)
 
 	// 模拟从磁盘读取数据
 	// 需要重新打开文件并读取
 	seg.file.Seek(0, 0)
-	block2 := NewBlock(seg, 0)
-	err = block2.LoadDataFromDisk()
+	block2 := newBlock(seg, 0)
+	err = block2.loadDataFromDisk()
 	assert.NoError(t, err)
 
 	// 验证加载的数据
-	retrievedChunk, err := block2.Get("key1")
+	retrievedChunk, err := block2.get("key1")
 	assert.NoError(t, err)
 	assert.NotNil(t, retrievedChunk)
 	assert.Equal(t, "key1", retrievedChunk.Key)
@@ -108,8 +108,8 @@ func TestBlock_MiddleSearch(t *testing.T) {
 	}
 	defer tempFile.Close()
 
-	seg := &Segment{file: tempFile}
-	block := NewBlock(seg, 0)
+	seg := &segment{file: tempFile}
+	block := newBlock(seg, 0)
 
 	// 插入数据
 	chunks := []common.Chunk{
@@ -119,16 +119,16 @@ func TestBlock_MiddleSearch(t *testing.T) {
 	}
 	for _, chunk := range chunks {
 		data := append([]byte{0}, []byte(chunk.Key)...) // 模拟存储的数据
-		block.AddChunk(&chunk, data)
+		block.addChunk(&chunk, data)
 	}
 
 	// 查找已存在的 key
-	chunk, ok := block.MiddleSearch("key2", 0, int64(len(block.chunks))-1)
+	chunk, ok := block.middleSearch("key2", 0, int64(len(block.chunks))-1)
 	assert.True(t, ok)
 	assert.Equal(t, "key2", chunk.Key)
 
 	// 查找不存在的 key
-	chunk, ok = block.MiddleSearch("key4", 0, int64(len(block.chunks))-1)
+	chunk, ok = block.middleSearch("key4", 0, int64(len(block.chunks))-1)
 	assert.False(t, ok)
 	assert.Nil(t, chunk)
 }

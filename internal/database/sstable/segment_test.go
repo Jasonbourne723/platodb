@@ -14,7 +14,7 @@ func TestNewSegment(t *testing.T) {
 	tempDir := "D://platodb//"
 
 	// 创建一个新的Segment
-	segment, err := NewSegment(tempDir, 1)
+	segment, err := newSegment(tempDir, 1)
 	assert.NoError(t, err, "Failed to create new segment")
 	assert.NotNil(t, segment, "Segment should not be nil")
 	assert.Equal(t, int64(1), segment.id, "Segment ID should be 1")
@@ -27,7 +27,7 @@ func TestWriteAndGet(t *testing.T) {
 	tempDir := "D://platodb//"
 
 	// 创建一个新的Segment
-	segment, err := NewSegment(tempDir, 1)
+	segment, err := newSegment(tempDir, 1)
 	assert.NoError(t, err, "Failed to create new segment")
 
 	// 创建一个chunk并写入Segment
@@ -36,17 +36,17 @@ func TestWriteAndGet(t *testing.T) {
 		Value:   []byte("value1"),
 		Deleted: false,
 	}
-	err = segment.Write(chunk)
+	err = segment.write(chunk)
 	assert.NoError(t, err, "Failed to write chunk to segment")
 
 	// 获取写入的chunk
-	result, err := segment.Get("key1")
+	result, err := segment.get("key1")
 	assert.NoError(t, err, "Failed to get chunk from segment")
 	assert.NotNil(t, result, "Result chunk should not be nil")
 	assert.Equal(t, "value1", string(result.Value), "Chunk value should be 'value1'")
 
 	// 获取不存在的key
-	result, err = segment.Get("nonexistent_key")
+	result, err = segment.get("nonexistent_key")
 	assert.NoError(t, err, "Failed to get chunk for nonexistent key")
 	assert.Nil(t, result, "Result chunk should be nil for nonexistent key")
 }
@@ -55,11 +55,11 @@ func TestSync(t *testing.T) {
 	// 创建临时目录
 	tempDir := "D://platodb//"
 	// 创建一个新的Segment
-	segment, err := NewSegment(tempDir, 1)
+	segment, err := newSegment(tempDir, 1)
 	assert.NoError(t, err, "Failed to create new segment")
 
 	// 同步文件
-	err = segment.Sync()
+	err = segment.sync()
 	assert.NoError(t, err, "Failed to sync segment file")
 }
 
@@ -68,15 +68,15 @@ func TestClose(t *testing.T) {
 	tempDir := "D://platodb//"
 
 	// 创建一个新的Segment
-	segment, err := NewSegment(tempDir, 1)
+	segment, err := newSegment(tempDir, 1)
 	assert.NoError(t, err, "Failed to create new segment")
 
 	// 关闭文件
-	err = segment.Close()
+	err = segment.close()
 	assert.NoError(t, err, "Failed to close segment file")
 
 	// 再次尝试关闭，应不再报错
-	err = segment.Close()
+	err = segment.close()
 	assert.NoError(t, err, "Closing again should not return error")
 }
 
@@ -85,7 +85,7 @@ func TestWriteToNewBlock(t *testing.T) {
 	tempDir := "D://platodb//"
 
 	// 创建一个新的Segment
-	segment, err := NewSegment(tempDir, 1)
+	segment, err := newSegment(tempDir, 1)
 	assert.NoError(t, err, "Failed to create new segment")
 
 	// 写入多个chunk，确保写入新块
@@ -95,7 +95,7 @@ func TestWriteToNewBlock(t *testing.T) {
 			Value:   []byte("value" + strconv.Itoa(i)),
 			Deleted: false,
 		}
-		err = segment.Write(chunk)
+		err = segment.write(chunk)
 		assert.NoError(t, err, "Failed to write chunk to segment")
 	}
 
@@ -108,22 +108,22 @@ func TestLoadSegment(t *testing.T) {
 	tempDir := "D://platodb//"
 
 	// 创建一个新的Segment并写入
-	segment, err := NewSegment(tempDir, 1)
+	segment, err := newSegment(tempDir, 1)
 	assert.NoError(t, err, "Failed to create new segment")
 	chunk := &common.Chunk{
 		Key:     "key1",
 		Value:   []byte("value1"),
 		Deleted: false,
 	}
-	err = segment.Write(chunk)
+	err = segment.write(chunk)
 	assert.NoError(t, err, "Failed to write chunk to segment")
 
 	// 关闭并重新加载Segment
-	err = segment.Close()
+	err = segment.close()
 	assert.NoError(t, err, "Failed to close segment")
 
 	// 加载该segment
-	loadedSegment, err := LoadSegment(tempDir, "000001.seg")
+	loadedSegment, err := loadSegment(tempDir, "000001.seg")
 	assert.NoError(t, err, "Failed to load segment")
 	assert.Equal(t, segment.id, loadedSegment.id, "Loaded segment ID should match")
 }

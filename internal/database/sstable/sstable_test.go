@@ -97,7 +97,7 @@ func TestGenerateSegmentId(t *testing.T) {
 	assert.Equal(t, sstable.Segments[len(sstable.Segments)-1].id+1, newID, "The first segment ID should be 1")
 
 	// Add a segment and generate again
-	segment := &Segment{id: 1}
+	segment := &segment{id: 1}
 	sstable.Segments = append(sstable.Segments, segment)
 	newID = sstable.generateSegmentId()
 	assert.Equal(t, int64(2), newID, "The second segment ID should be 2")

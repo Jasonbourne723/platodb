@@ -71,23 +71,6 @@ func WithDir(dataDir string, walDir string) Options {
 	}
 }
 
-func (db *DB) createMemoryTable() error {
-	memoryTable := memorytable.NewMemoryTable()
-	db.memoryTables = append(db.memoryTables, memoryTable)
-	wal, err := wal.NewWalWriterCloser(db.walDir)
-	if err != nil {
-		return err
-	}
-	db.walMap[memoryTable] = wal
-	return nil
-}
-
-func (db *DB) removeMemoryTable() {
-	db.walMap[db.memoryTables[0]].Close()
-	delete(db.walMap, db.memoryTables[0])
-	db.memoryTables = db.memoryTables[1:]
-}
-
 // 查询key
 func (db *DB) Get(key string) ([]byte, error) {
 
@@ -115,8 +98,6 @@ func (db *DB) Set(key string, value []byte) error {
 		return errors.New("database is shutting down")
 	}
 	db.memoryTableLock.RLocker().Lock()
-	defer db.memoryTableLock.RLocker().Unlock()
-
 	memeryTable := db.memoryTables[len(db.memoryTables)-1]
 
 	if wal, ok := db.walMap[memeryTable]; ok {
@@ -126,7 +107,7 @@ func (db *DB) Set(key string, value []byte) error {
 			Deleted: false,
 		})
 	}
-
+	db.memoryTableLock.RLocker().Unlock()
 	memeryTable.Set(key, value, false)
 	if memeryTable.Size() > db.segmentSize {
 		db.initiateFlush()
@@ -158,6 +139,41 @@ func (db *DB) Del(key string) error {
 	return nil
 }
 
+// 优雅关机
+func (db *DB) Shutdown() {
+
+	if !atomic.CompareAndSwapInt32(&db.isShutdonw, 0, 1) {
+		return
+	}
+
+	db.flushLock.Lock()
+	defer db.flushLock.Unlock()
+
+	for len(db.memoryTables) > 0 {
+		db.flush()
+	}
+
+	db.sstable.Close()
+}
+
+func (db *DB) createMemoryTable() error {
+	memoryTable := memorytable.NewMemoryTable()
+	db.memoryTables = append(db.memoryTables, memoryTable)
+	wal, err := wal.NewWalWriterCloser(db.walDir)
+	if err != nil {
+		return err
+	}
+	db.walMap[memoryTable] = wal
+	return nil
+}
+
+func (db *DB) removeMemoryTable() {
+	db.walMap[db.memoryTables[0]].Close()
+	delete(db.walMap, db.memoryTables[0])
+	db.memoryTables = db.memoryTables[1:]
+}
+
+// 初始化flush
 func (db *DB) initiateFlush() {
 	db.flushLock.Lock()
 	defer db.flushLock.Unlock()
@@ -174,7 +190,7 @@ func (db *DB) initiateFlush() {
 	}
 
 	go func() {
-		db.Flush()
+		db.flush()
 		db.flushLock.Lock()
 		db.isFlushing = false
 		db.flushLock.Unlock()
@@ -182,16 +198,10 @@ func (db *DB) initiateFlush() {
 }
 
 // 内存表写入sstable
-func (db *DB) Flush() {
-
-	log.Println("开始flush")
-
+func (db *DB) flush() {
 	if err := db.sstable.Write(db.memoryTables[0]); err != nil {
 		log.Fatal(fmt.Errorf("内存表持久化异常：%w", err))
 	}
-
-	log.Println("flush结束")
-
 	db.memoryTableLock.Lock()
 	defer db.memoryTableLock.Unlock()
 	db.removeMemoryTable()
@@ -215,7 +225,6 @@ func (db *DB) recoverFromWal(walDir string) error {
 			return err
 		}
 		memoryTable := memorytable.NewMemoryTable()
-		log.Println("wal崩溃恢复开始")
 		for {
 			chunk, err := wal.Read()
 			if err != nil {
@@ -227,10 +236,8 @@ func (db *DB) recoverFromWal(walDir string) error {
 			if chunk == nil {
 				break
 			}
-			//log.Printf("wal数据恢复,key:%v,value,%v,deleted:%v", chunk.Key, chunk.Value, chunk.Deleted)
 			memoryTable.Set(chunk.Key, chunk.Value, chunk.Deleted)
 		}
-		log.Println("wal崩溃恢复结束")
 		if memoryTable.Size() > 0 {
 			if err := db.sstable.Write(memoryTable); err != nil {
 				return err
@@ -242,20 +249,4 @@ func (db *DB) recoverFromWal(walDir string) error {
 	}
 
 	return nil
-}
-
-func (db *DB) Shutdown() {
-
-	if !atomic.CompareAndSwapInt32(&db.isShutdonw, 0, 1) {
-		return
-	}
-
-	db.flushLock.Lock()
-	defer db.flushLock.Unlock()
-
-	for len(db.memoryTables) > 0 {
-		db.Flush()
-	}
-
-	db.sstable.Close()
 }

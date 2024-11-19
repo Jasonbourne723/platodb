@@ -19,18 +19,18 @@ const (
 	SUFFIX        = "seg"
 )
 
-type Segment struct {
+type segment struct {
 	id       int64
 	file     *os.File
 	filePath string
 	closed   int32
-	blocks   []Block
+	blocks   []block
 	size     int64
 	utils    *common.Utils
 }
 
 // 创建一个新的segment文件
-func NewSegment(root string, id int64) (*Segment, error) {
+func newSegment(root string, id int64) (*segment, error) {
 
 	name := fmt.Sprintf("%06d.%s", id, SUFFIX)
 	filePath := path.Join(root, name)
@@ -39,17 +39,17 @@ func NewSegment(root string, id int64) (*Segment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("segment文件打开失败:%w", err)
 	}
-	return &Segment{
+	return &segment{
 		id:       id,
 		file:     file,
 		filePath: filePath,
-		blocks:   make([]Block, 0, 50),
+		blocks:   make([]block, 0, 50),
 		utils:    common.NewUtils(),
 	}, nil
 }
 
 // 加载已存在的segment文件
-func LoadSegment(root string, name string) (*Segment, error) {
+func loadSegment(root string, name string) (*segment, error) {
 	if !strings.HasSuffix(name, SUFFIX) {
 		return nil, errors.New("FILE FORMAT ERROR")
 	}
@@ -68,7 +68,7 @@ func LoadSegment(root string, name string) (*Segment, error) {
 	if err != nil {
 		return nil, err
 	}
-	seg := &Segment{
+	seg := &segment{
 		id:       int64(id),
 		filePath: filePath,
 		file:     file,
@@ -80,7 +80,7 @@ func LoadSegment(root string, name string) (*Segment, error) {
 }
 
 // 写入数据
-func (s *Segment) Write(chunk *common.Chunk) error {
+func (s *segment) write(chunk *common.Chunk) error {
 
 	data, err := s.utils.Encode(chunk)
 	if err != nil {
@@ -94,39 +94,27 @@ func (s *Segment) Write(chunk *common.Chunk) error {
 	}
 
 	block := s.getLatestEnonghBlock(l)
-	return block.AddChunk(chunk, data)
-}
-
-// 获取最后一个块，如果最后一个块容量不足，会新建一个块
-func (s *Segment) getLatestEnonghBlock(l int64) *Block {
-	length := len(s.blocks)
-	if length == 0 {
-		s.blocks = append(s.blocks, *NewBlock(s, 0))
-	} else if !s.blocks[length-1].Enough(l) {
-		s.file.Write(make([]byte, BLOCK_SIZE-s.blocks[length-1].size))
-		s.blocks = append(s.blocks, *NewBlock(s, int64(length*BLOCK_SIZE)))
-	}
-	return &s.blocks[len(s.blocks)-1]
+	return block.addChunk(chunk, data)
 }
 
 // 查询key-value；
 // deleted为true，表示数据已被删除；
 // ok为true，表示查询到key-value；
-func (s *Segment) Get(key string) (chunk *common.Chunk, err error) {
+func (s *segment) get(key string) (chunk *common.Chunk, err error) {
 
 	//初始化blcoks
 	if len(s.blocks) == 0 {
 
 		blockCount := int(math.Ceil(float64(s.size) / float64(BLOCK_SIZE)))
-		s.blocks = make([]Block, 0, blockCount)
+		s.blocks = make([]block, 0, blockCount)
 
 		for i := 0; i < blockCount; i++ {
-			s.blocks = append(s.blocks, *NewBlock(s, int64(i*BLOCK_SIZE)))
+			s.blocks = append(s.blocks, newBlock(s, int64(i*BLOCK_SIZE)))
 		}
 	}
 
 	for i := range s.blocks {
-		chunk, err := s.blocks[i].Get(key)
+		chunk, err := s.blocks[i].get(key)
 		if err != nil || chunk != nil {
 			return chunk, err
 		}
@@ -135,14 +123,26 @@ func (s *Segment) Get(key string) (chunk *common.Chunk, err error) {
 }
 
 // 同步文件系统
-func (s *Segment) Sync() error {
+func (s *segment) sync() error {
 	return s.file.Sync()
 }
 
 // 关闭文件流
-func (s *Segment) Close() error {
+func (s *segment) close() error {
 	if atomic.CompareAndSwapInt32(&s.closed, 0, 1) {
 		return s.file.Close()
 	}
 	return nil
+}
+
+// 获取最后一个块，如果最后一个块容量不足，会新建一个块
+func (s *segment) getLatestEnonghBlock(l int64) *block {
+	length := len(s.blocks)
+	if length == 0 {
+		s.blocks = append(s.blocks, newBlock(s, 0))
+	} else if !s.blocks[length-1].enough(l) {
+		s.file.Write(make([]byte, BLOCK_SIZE-s.blocks[length-1].size))
+		s.blocks = append(s.blocks, newBlock(s, int64(length*BLOCK_SIZE)))
+	}
+	return &s.blocks[len(s.blocks)-1]
 }

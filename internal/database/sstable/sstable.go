@@ -7,7 +7,7 @@ import (
 )
 
 type SSTable struct {
-	Segments []*Segment
+	Segments []*segment
 	Root     string
 }
 
@@ -16,7 +16,7 @@ func NewSSTable(root string) (*SSTable, error) {
 
 	sst := &SSTable{
 		Root:     root,
-		Segments: make([]*Segment, 0, 10),
+		Segments: make([]*segment, 0, 10),
 	}
 	err := sst.load()
 	if err != nil {
@@ -41,7 +41,7 @@ func (s *SSTable) load() error {
 
 		name := file.Name()
 
-		seg, err := LoadSegment(s.Root, name)
+		seg, err := loadSegment(s.Root, name)
 		if err != nil {
 			continue
 		}
@@ -62,18 +62,18 @@ func (s *SSTable) generateSegmentId() int64 {
 // 将内存表写入sstable
 func (s *SSTable) Write(scanner common.Scanner) error {
 
-	seg, err := NewSegment(s.Root, s.generateSegmentId())
+	seg, err := newSegment(s.Root, s.generateSegmentId())
 	if err != nil {
 		return err
 	}
 
 	for scanner.Scan() {
 		chunk := scanner.ScanValue()
-		seg.Write(chunk)
+		seg.write(chunk)
 	}
 
 	s.Segments = append(s.Segments, seg)
-	return seg.Sync()
+	return seg.sync()
 }
 
 // 倒序扫描segment文件，直到查询key
@@ -82,7 +82,7 @@ func (s *SSTable) Get(key string) ([]byte, error) {
 	//布隆过滤器，确认key是否存在
 
 	for i := len(s.Segments) - 1; i >= 0; i-- {
-		chunk, err := s.Segments[i].Get(key)
+		chunk, err := s.Segments[i].get(key)
 		if err != nil {
 			return nil, err
 		}
@@ -99,6 +99,6 @@ func (s *SSTable) Get(key string) ([]byte, error) {
 func (s *SSTable) Close() {
 
 	for i := range s.Segments {
-		s.Segments[i].Close()
+		s.Segments[i].close()
 	}
 }

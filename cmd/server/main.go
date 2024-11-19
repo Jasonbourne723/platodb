@@ -15,7 +15,6 @@ import (
 )
 
 func main() {
-
 	cfg, err := config.LoadConfig(".")
 	if err != nil {
 		log.Fatal(fmt.Errorf("配置加载失败:%w", err))

@@ -9,19 +9,21 @@ import (
 	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
 
-type Block struct {
-	seg      *Segment
+type block struct {
+	seg      *segment
 	posBegin int64
 	chunks   []common.Chunk
 	size     int64
+	min      string
+	max      string
 }
 
-func (b *Block) Enough(size int64) bool {
+func (b *block) enough(size int64) bool {
 	return b.size+size <= BLOCK_SIZE
 }
 
-func NewBlock(seg *Segment, pos int64) *Block {
-	return &Block{
+func newBlock(seg *segment, pos int64) block {
+	return block{
 		seg:      seg,
 		chunks:   make([]common.Chunk, 0, 100),
 		size:     0,
@@ -29,7 +31,7 @@ func NewBlock(seg *Segment, pos int64) *Block {
 	}
 }
 
-func (b *Block) AddChunk(chunk *common.Chunk, data []byte) error {
+func (b *block) addChunk(chunk *common.Chunk, data []byte) error {
 
 	b.chunks = append(b.chunks, *chunk)
 	b.size += int64(len(data))
@@ -38,22 +40,22 @@ func (b *Block) AddChunk(chunk *common.Chunk, data []byte) error {
 	return err
 }
 
-func (b *Block) Get(key string) (*common.Chunk, error) {
+func (b *block) get(key string) (*common.Chunk, error) {
 
 	if len(b.chunks) == 0 { //块数据还未加载到内存
-		if err := b.LoadDataFromDisk(); err != nil {
+		if err := b.loadDataFromDisk(); err != nil {
 			return nil, err
 		}
 	}
 
-	chunk, ok := b.MiddleSearch(key, 0, int64(len(b.chunks))-1)
+	chunk, ok := b.middleSearch(key, 0, int64(len(b.chunks))-1)
 	if ok {
 		return chunk, nil
 	}
 	return nil, nil
 }
 
-func (b *Block) LoadDataFromDisk() error {
+func (b *block) loadDataFromDisk() error {
 	buf := make([]byte, BLOCK_SIZE)
 	n, err := b.seg.file.ReadAt(buf, b.posBegin)
 	if err != nil {
@@ -135,11 +137,15 @@ func (b *Block) LoadDataFromDisk() error {
 			Deleted: deleted == 1,
 		})
 	}
+	if len(b.chunks) > 0 {
+		b.min = b.chunks[0].Key
+		b.max = b.chunks[len(b.chunks)-1].Key
+	}
 	return nil
 }
 
 // 二分法 快速查询
-func (b *Block) MiddleSearch(key string, posBegin int64, posEnd int64) (c *common.Chunk, ok bool) {
+func (b *block) middleSearch(key string, posBegin int64, posEnd int64) (c *common.Chunk, ok bool) {
 
 	if key < b.chunks[posBegin].Key || key > b.chunks[posEnd].Key {
 		return nil, false
@@ -158,7 +164,7 @@ func (b *Block) MiddleSearch(key string, posBegin int64, posEnd int64) (c *commo
 		return &b.chunks[posMiddle], true
 	}
 	if key < b.chunks[posMiddle].Key {
-		return b.MiddleSearch(key, posBegin, posMiddle)
+		return b.middleSearch(key, posBegin, posMiddle)
 	}
-	return b.MiddleSearch(key, posMiddle, posEnd)
+	return b.middleSearch(key, posMiddle, posEnd)
 }
