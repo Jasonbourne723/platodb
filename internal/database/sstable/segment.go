@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	BLOCK_SIZE    = 64 * common.KB
-	FILEMODE_PERM = 0644
-	SEG_SUFFIX    = ".seg"
-	SP_SUFFIX     = ".sp"
+	BlockSize    = 64 * common.KB
+	FileModePerm = 0644
+	SegSuffix    = ".seg"
+	SpSuffix     = ".sp"
 )
 
 type snapshotBlock struct {
@@ -38,13 +38,21 @@ type segment struct {
 	utils     *common.Utils
 }
 
-// 创建一个新的segment文件
+// newSegment creates a new segment with the specified root directory and ID.
+// It opens a file for the segment, initializes block and snapshot slices, and returns a pointer to the segment.
+// If there's an error opening the file, it returns an error.
+// Parameters:
+//   - root: The directory where the segment file will be stored.
+//   - id: The unique identifier for the segment.
+//
+// Returns:
+//   - Pointer to the created segment, or nil and an error if creation fails.
 func newSegment(root string, id int64) (*segment, error) {
 
-	name := fmt.Sprintf("%06d%s", id, SEG_SUFFIX)
+	name := fmt.Sprintf("%06d%s", id, SegSuffix)
 	filePath := path.Join(root, name)
 
-	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, FILEMODE_PERM)
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, FileModePerm)
 	if err != nil {
 		return nil, fmt.Errorf("segment文件打开失败:%w", err)
 	}
@@ -58,9 +66,11 @@ func newSegment(root string, id int64) (*segment, error) {
 	}, nil
 }
 
-// 加载已存在的segment文件
+// loadSegment loads a segment from the given root directory and segment name.
+// It validates the file format, extracts segment ID, opens the file, and initializes blocks.
+// Returns a pointer to the segment and an error if any occurs during loading.
 func loadSegment(root string, name string) (*segment, error) {
-	if !strings.HasSuffix(name, SEG_SUFFIX) {
+	if !strings.HasSuffix(name, SegSuffix) {
 		return nil, errors.New("FILE FORMAT ERROR")
 	}
 	id, err := strconv.Atoi(strings.Split(name, ".")[0])
@@ -74,7 +84,7 @@ func loadSegment(root string, name string) (*segment, error) {
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(filePath, os.O_RDONLY, FILEMODE_PERM)
+	file, err := os.OpenFile(filePath, os.O_RDONLY, FileModePerm)
 	if err != nil {
 		return nil, err
 	}
@@ -93,11 +103,14 @@ func loadSegment(root string, name string) (*segment, error) {
 	return seg, nil
 }
 
+// getSnapshotFilePath returns the file path for the snapshot file associated with the segment.
+// It constructs the path by removing the Segment suffix from the filePath and appending the Snapshot suffix.
 func (s *segment) getSnapshotFilePath() string {
-	return strings.TrimSuffix(s.filePath, SEG_SUFFIX) + SP_SUFFIX
+	return strings.TrimSuffix(s.filePath, SegSuffix) + SpSuffix
 }
 
-// 写入数据
+// write encodes the provided chunk and adds it to the latest suitable block within the segment.
+// It returns an error if the encoded chunk exceeds the block size or if there's an issue with block retrieval or data addition.
 func (s *segment) write(chunk *common.Chunk) error {
 	data, err := s.utils.Encode(chunk)
 	if err != nil {
@@ -106,17 +119,22 @@ func (s *segment) write(chunk *common.Chunk) error {
 
 	l := int64(len(data))
 
-	if l > BLOCK_SIZE {
+	if l > BlockSize {
 		return errors.New("too large")
 	}
 
-	block := s.getLatestEnonghBlock(l)
+	block, err := s.getLatestEnonghBlock(l)
+	if err != nil {
+		return err
+	}
 	return block.addChunk(chunk, data)
 }
 
-// 查询key-value；
-// deleted为true，表示数据已被删除；
-// ok为true，表示查询到key-value；
+// get searches for a chunk with the specified key within the segment's blocks.
+// It uses a binary search on the snapshots to find the potential block containing the key.
+// If the key is found, the corresponding chunk and nil error are returned.
+// If the key is not found or an error occurs, nil and the respective error are returned.
+// If there are no snapshots, it implies no data, hence immediately returns nil, nil.
 func (s *segment) get(key string) (chunk *common.Chunk, err error) {
 
 	if len(s.snapshots) == 0 {
@@ -141,31 +159,38 @@ func (s *segment) get(key string) (chunk *common.Chunk, err error) {
 	// return nil, nil
 }
 
-// 二分法 快速查询
-func (b *segment) middleSearch(key string, posBegin int64, posEnd int64) (pos int64, ok bool) {
+// middleSearch performs a binary search within the segment to find the position of a given key.
+// It returns the position and a boolean indicating whether the key was found.
+// If the key is not found, position returned is -1.
+// The search is conducted recursively between posBegin and posEnd indices of the snapshots slice.
+func (s *segment) middleSearch(key string, posBegin int64, posEnd int64) (pos int64, ok bool) {
 
-	if key < b.snapshots[posBegin].min || key > b.snapshots[posEnd].max {
+	if key < s.snapshots[posBegin].min || key > s.snapshots[posEnd].max {
 		return -1, false
 	}
-	if key >= b.snapshots[posBegin].min && key <= b.snapshots[posBegin].max {
+	if key >= s.snapshots[posBegin].min && key <= s.snapshots[posBegin].max {
 		return posBegin, true
 	}
-	if key >= b.snapshots[posEnd].min && key <= b.snapshots[posEnd].max {
+	if key >= s.snapshots[posEnd].min && key <= s.snapshots[posEnd].max {
 		return posEnd, true
 	}
 	if posEnd == posBegin || posEnd == posBegin+1 {
 		return -1, false
 	}
 	posMiddle := (posBegin + posEnd) / 2
-	if key >= b.snapshots[posMiddle].min && key <= b.snapshots[posMiddle].max {
+	if key >= s.snapshots[posMiddle].min && key <= s.snapshots[posMiddle].max {
 		return posMiddle, true
 	}
-	if key < b.snapshots[posMiddle].min {
-		return b.middleSearch(key, posBegin, posMiddle)
+	if key < s.snapshots[posMiddle].min {
+		return s.middleSearch(key, posBegin, posMiddle)
 	}
-	return b.middleSearch(key, posMiddle, posEnd)
+	return s.middleSearch(key, posMiddle, posEnd)
 }
 
+// loadSnapshot reads snapshot data from a file and populates the segment's snapshots slice with the parsed key ranges.
+// It opens the snapshot file in read-only mode, iterates through the file to decode and construct snapshotBlock structs,
+// and appends them to the segment's snapshots. The process stops when the end of the file is reached.
+// An error is returned if there are issues reading the file.
 func (s *segment) loadSnapshot() error {
 
 	spFilePath := s.getSnapshotFilePath()
@@ -207,7 +232,10 @@ func (s *segment) loadSnapshot() error {
 	return nil
 }
 
-// 生成快照文件
+// generateSnapshot creates a snapshot file for the segment by serializing the minimum and maximum keys of each block.
+// It opens the snapshot file for writing, encodes the key length and keys into a buffer, writes the buffer content to the file,
+// and updates the segment's snapshots slice with the block boundaries. The method ensures the file is synced to disk before returning.
+// Returns an error if any I/O operation fails during the process.
 func (s *segment) generateSnapshot() error {
 
 	spFilePath := s.getSnapshotFilePath()
@@ -220,28 +248,33 @@ func (s *segment) generateSnapshot() error {
 	buf := &bytes.Buffer{}
 	for i := range s.blocks {
 		chunks := s.blocks[i].chunks
-		min := chunks[0]
+		firstChunk := chunks[0]
 		minKeyLen := make([]byte, 4)
-		binary.BigEndian.PutUint32(minKeyLen, uint32(len(min.Key)))
+		binary.BigEndian.PutUint32(minKeyLen, uint32(len(firstChunk.Key)))
 		buf.Write(minKeyLen)
-		buf.Write([]byte(min.Key))
+		buf.Write([]byte(firstChunk.Key))
 
-		max := chunks[len(chunks)-1]
+		lastChunk := chunks[len(chunks)-1]
 		maxKeyLen := make([]byte, 4)
-		binary.BigEndian.PutUint32(maxKeyLen, uint32(len(max.Key)))
+		binary.BigEndian.PutUint32(maxKeyLen, uint32(len(lastChunk.Key)))
 		buf.Write(maxKeyLen)
-		buf.Write([]byte(max.Key))
+		buf.Write([]byte(lastChunk.Key))
 		s.snapshots = append(s.snapshots, snapshotBlock{
-			min: min.Key,
-			max: max.Key,
+			min: firstChunk.Key,
+			max: lastChunk.Key,
 		})
 	}
 
-	f.Write(buf.Bytes())
+	_, err = f.Write(buf.Bytes())
+	if err != nil {
+		return err
+	}
 	return f.Sync()
 }
 
-// 初始化块数据
+// initBlocks initializes the blocks for the segment based on loaded snapshots.
+// It first loads the snapshot data, then creates a slice of blocks accordingly.
+// Each block is associated with a segment and has a starting offset.
 func (s *segment) initBlocks() error {
 
 	if err := s.loadSnapshot(); err != nil {
@@ -252,12 +285,14 @@ func (s *segment) initBlocks() error {
 	s.blocks = make([]block, 0, len(s.snapshots))
 
 	for i := 0; i < len(s.snapshots); i++ {
-		s.blocks = append(s.blocks, newBlock(s, int64(i*BLOCK_SIZE)))
+		s.blocks = append(s.blocks, newBlock(s, int64(i*BlockSize)))
 	}
 	return nil
 }
 
-// 同步文件系统
+// sync ensures all data written to the segment's file is flushed to the underlying storage.
+// It calls the `Sync` method of the file handle associated with the segment.
+// Returns an error if the synchronization fails.
 func (s *segment) sync() error {
 	return s.file.Sync()
 }
@@ -270,14 +305,20 @@ func (s *segment) close() error {
 	return nil
 }
 
-// 获取最后一个块，如果最后一个块容量不足，会新建一个块
-func (s *segment) getLatestEnonghBlock(l int64) *block {
+// getLatestEnoughBlock returns the latest block in the segment that can accommodate a chunk of size l.
+// If no such block exists, a new block is appended to the segment.
+// The block is guaranteed to have enough space for the chunk.
+// It adjusts the block size by writing empty bytes if necessary.
+func (s *segment) getLatestEnonghBlock(l int64) (*block, error) {
 	length := len(s.blocks)
 	if length == 0 {
 		s.blocks = append(s.blocks, newBlock(s, 0))
 	} else if !s.blocks[length-1].enough(l) {
-		s.file.Write(make([]byte, BLOCK_SIZE-s.blocks[length-1].size))
-		s.blocks = append(s.blocks, newBlock(s, int64(length*BLOCK_SIZE)))
+		_, err := s.file.Write(make([]byte, BlockSize-s.blocks[length-1].size))
+		if err != nil {
+			return nil, err
+		}
+		s.blocks = append(s.blocks, newBlock(s, int64(length*BlockSize)))
 	}
-	return &s.blocks[len(s.blocks)-1]
+	return &s.blocks[len(s.blocks)-1], nil
 }

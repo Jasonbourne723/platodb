@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"log"
+	"net"
 
 	"github.com/spf13/cobra"
 )
@@ -19,46 +20,17 @@ var rootCommand = &cobra.Command{
 			fmt.Println("连接错误:", err)
 			return
 		}
-		defer conn.Close()
-
-		// 认证命令
-		// if password != "" {
-		// 	authResponse, err := SendCommand(conn, "AUTH "+password)
-		// 	if err != nil {
-		// 		fmt.Println("认证错误:", err)
-		// 		return
-		// 	}
-		// 	fmt.Println("认证响应:", authResponse)
-		// }
-
-		// 启动命令处理循环
+		defer func(conn net.Conn) {
+			err := conn.Close()
+			if err != nil {
+				log.Println(fmt.Errorf("connection close failed %w", err))
+			}
+		}(conn)
 		HandleCommandLoop(conn)
-
-		// reader := bufio.NewReader(os.Stdin)
-
-		// for {
-		// 	fmt.Print("> ")
-		// 	input, _ := reader.ReadString('\n')
-		// 	input = strings.TrimSpace(input)
-
-		// 	if input == "exit" {
-		// 		break
-		// 	}
-
-		// 	// 发送命令到服务器
-		// 	fmt.Fprintf(conn, "%s\n", input)
-
-		// 	// 读取响应
-		// 	response, err := bufio.NewReader(conn).ReadString('\n')
-		// 	if err != nil {
-		// 		fmt.Println("Error reading from server:", err)
-		// 		break
-		// 	}
-		// 	fmt.Print(response)
-		// }
 	},
 }
 
+// Execute sets up the root command's persistent flags, specifically the server address and port, and then attempts to execute the root command. If an error occurs during execution, the function logs the error and exits the program. This function is typically used as the entry point for a CLI application.
 func Execute() {
 
 	rootCommand.PersistentFlags().String("server", "127.0.0.1:6399", "服务器地址和端口")

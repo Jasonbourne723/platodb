@@ -16,26 +16,30 @@ import (
 )
 
 type DB struct {
-	memoryTables    []memorytable.Memorytable
+	memoryTables    []memorytable.MemoryTable
 	sstable         *sstable.SSTable
 	memoryTableLock *sync.RWMutex
 	flushLock       *sync.Mutex
 	isFlushing      bool
 	isShutdonw      int32
-	walMap          map[memorytable.Memorytable]wal.WalWriterCloser
+	walMap          map[memorytable.MemoryTable]wal.WriterCloser
 	segmentSize     int64
 	dataDir         string
 	walDir          string
 }
 
+// Options defines a function type that accepts a pointer to DB and modifies its configuration.
+// It is used to customize the behavior of a DB instance during initialization.
 type Options func(db *DB)
 
-// 创建DB
+// NewDB initializes and returns a new instance of DB with optional configuration provided by variadic Options.
+// It sets up the initial memory tables, SSTable, and recovers data from the Write-Ahead Log (WAL) if present.
+// Returns a pointer to DB and an error if any occurs during setup or recovery.
 func NewDB(options ...Options) (*DB, error) {
 
 	db := DB{
-		memoryTables:    make([]memorytable.Memorytable, 0, 2),
-		walMap:          make(map[memorytable.Memorytable]wal.WalWriterCloser),
+		memoryTables:    make([]memorytable.MemoryTable, 0, 2),
+		walMap:          make(map[memorytable.MemoryTable]wal.WriterCloser),
 		sstable:         nil,
 		memoryTableLock: &sync.RWMutex{},
 		flushLock:       &sync.Mutex{},
@@ -64,6 +68,10 @@ func NewDB(options ...Options) (*DB, error) {
 	return &db, nil
 }
 
+// Dir sets the data directory and write-ahead log (WAL) directory options for the database.
+// This function is intended to be used when configuring a database instance.
+// It takes two string arguments representing the paths for the data directory and WAL directory, respectively.
+// The function returns an Options func that applies these settings to a DB instance.
 func Dir(dataDir string, walDir string) Options {
 	return func(db *DB) {
 		db.dataDir = dataDir
@@ -71,13 +79,18 @@ func Dir(dataDir string, walDir string) Options {
 	}
 }
 
+// SegmentSize sets the size limit for each data segment in megabytes.
+// The provided value is converted to bytes before being applied to the DB configuration.
+// This function is intended to be used as an option when initializing a database instance.
 func SegmentSize(segmentSize int32) Options {
 	return func(db *DB) {
 		db.segmentSize = int64(segmentSize * common.MB)
 	}
 }
 
-// 查询key
+// Get retrieves the value associated with the specified key from the database.
+// It first checks the memory tables in reverse order and then falls back to the SSTable.
+// If the database is shutting down, it returns an error.
 func (db *DB) Get(key string) ([]byte, error) {
 
 	if atomic.LoadInt32(&db.isShutdonw) == 1 {
@@ -97,7 +110,10 @@ func (db *DB) Get(key string) ([]byte, error) {
 	return db.sstable.Get(key)
 }
 
-// 写入key-value
+// Set stores the given value for the specified key in the database.
+// It writes the data to the Write-Ahead Log (WAL) if enabled and updates the in-memory table.
+// If the in-memory table size exceeds the defined segment size, a flush operation is initiated.
+// Returns an error if the database is shutting down.
 func (db *DB) Set(key string, value []byte) error {
 
 	if atomic.LoadInt32(&db.isShutdonw) == 1 {
@@ -122,7 +138,9 @@ func (db *DB) Set(key string, value []byte) error {
 	return nil
 }
 
-// 删除key
+// Del deletes the entry associated with the provided key from the database.
+// It writes a deletion record to the Write-Ahead Log (WAL), if enabled, and marks the entry as deleted in the in-memory table.
+// An error is returned if the database is in the process of shutting down.
 func (db *DB) Del(key string) error {
 
 	if atomic.LoadInt32(&db.isShutdonw) == 1 {
@@ -131,21 +149,27 @@ func (db *DB) Del(key string) error {
 
 	db.memoryTableLock.RLocker().Lock()
 	defer db.memoryTableLock.RLocker().Unlock()
-	memeryTable := db.memoryTables[len(db.memoryTables)-1]
+	memoryTable := db.memoryTables[len(db.memoryTables)-1]
 
-	if wal, ok := db.walMap[memeryTable]; ok {
-		wal.Write(&common.Chunk{
+	if walWriter, ok := db.walMap[memoryTable]; ok {
+		err := walWriter.Write(&common.Chunk{
 			Key:     key,
 			Value:   nil,
 			Deleted: true,
 		})
+		if err != nil {
+			return err
+		}
 	}
 
-	memeryTable.Set(key, nil, true)
+	memoryTable.Set(key, nil, true)
 	return nil
 }
 
-// 优雅关机
+// Shutdown initiates the shutdown process for the database.
+// It prevents new operations by setting the shutdown flag and flushes remaining memory tables to disk.
+// Afterward, it closes the SSTable to finalize the shutdown sequence.
+// This method is idempotent and will return immediately if called again after the shutdown has been initiated.
 func (db *DB) Shutdown() {
 
 	if !atomic.CompareAndSwapInt32(&db.isShutdonw, 0, 1) {
@@ -162,24 +186,31 @@ func (db *DB) Shutdown() {
 	db.sstable.Close()
 }
 
+// createMemoryTable initializes a new memory table, appends it to the database's memoryTables slice,
+// and associates a new Write-Ahead Log (WAL) writer with it.
+// Returns an error if the WAL writer creation fails.
 func (db *DB) createMemoryTable() error {
 	memoryTable := memorytable.NewMemoryTable()
 	db.memoryTables = append(db.memoryTables, memoryTable)
-	wal, err := wal.NewWalWriterCloser(db.walDir)
+	walWriterCloser, err := wal.NewWriterCloser(db.walDir)
 	if err != nil {
 		return err
 	}
-	db.walMap[memoryTable] = wal
+	db.walMap[memoryTable] = walWriterCloser
 	return nil
 }
 
+// removeMemoryTable removes the first memory table from the database, closes its associated WAL writer,
+// and updates the memoryTables slice accordingly. This is typically done after successfully flushing
+// the memory table's contents to the SSTable.
 func (db *DB) removeMemoryTable() {
 	db.walMap[db.memoryTables[0]].Close()
 	delete(db.walMap, db.memoryTables[0])
 	db.memoryTables = db.memoryTables[1:]
 }
 
-// 初始化flush
+// initiateFlush starts the process of flushing the in-memory data to disk if not already flushing.
+// It creates a new memory table, acquires necessary locks, and triggers the flush routine.
 func (db *DB) initiateFlush() {
 	db.flushLock.Lock()
 	defer db.flushLock.Unlock()
@@ -203,7 +234,9 @@ func (db *DB) initiateFlush() {
 	}()
 }
 
-// 内存表写入sstable
+// flush persists the first memory table to the SSTable, removes it from memory,
+// and updates internal state accordingly. This function should be called when a memory table is ready to be flushed to disk.
+// It acquires a write lock on the memory table to ensure thread safety during the flush operation.
 func (db *DB) flush() {
 	if err := db.sstable.Write(db.memoryTables[0]); err != nil {
 		log.Fatal(fmt.Errorf("内存表持久化异常：%w", err))
@@ -213,7 +246,10 @@ func (db *DB) flush() {
 	db.removeMemoryTable()
 }
 
-// 崩溃恢复
+// recoverFromWal recovers the database state from Write-Ahead Log (WAL) files in the specified directory.
+// It ensures the directory exists, iterates through each WAL file, reads chunks,
+// applies them to a memory table, and writes the memory table to the SSTable if non-empty.
+// Returns an error if any step fails, such as I/O issues or failures during recovery.
 func (db *DB) recoverFromWal(walDir string) error {
 
 	if err := common.EnsureDirExists(walDir); err != nil {
@@ -226,13 +262,13 @@ func (db *DB) recoverFromWal(walDir string) error {
 	}
 	for _, walFilePath := range files {
 
-		wal, err := wal.NewWalReaderCloser(walFilePath)
+		walReaderCloser, err := wal.NewReaderCloser(walFilePath)
 		if err != nil {
 			return err
 		}
 		memoryTable := memorytable.NewMemoryTable()
 		for {
-			chunk, err := wal.Read()
+			chunk, err := walReaderCloser.Read()
 			if err != nil {
 				if err == io.EOF {
 					break
@@ -249,7 +285,7 @@ func (db *DB) recoverFromWal(walDir string) error {
 				return err
 			}
 		}
-		if err := wal.Close(); err != nil {
+		if err := walReaderCloser.Close(); err != nil {
 			return err
 		}
 	}

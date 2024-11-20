@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
@@ -17,25 +18,25 @@ const (
 	SUFFIX = ".log"
 )
 
-type WalWriterCloser interface {
-	WalWriter
-	WalCloser
+type WriterCloser interface {
+	Writer
+	Closer
 }
 
-type WalReaderCloser interface {
-	WalReader
-	WalCloser
+type ReaderCloser interface {
+	Reader
+	Closer
 }
 
-type WalReader interface {
+type Reader interface {
 	Read() (*common.Chunk, error)
 }
 
-type WalWriter interface {
+type Writer interface {
 	Write(*common.Chunk) error
 }
 
-type WalCloser interface {
+type Closer interface {
 	Close() error
 }
 
@@ -46,7 +47,11 @@ type Wal struct {
 	reader   *bufio.Reader
 }
 
-func NewWalReaderCloser(filepath string) (WalReaderCloser, error) {
+// NewReaderCloser creates and returns a new WalReaderCloser instance initialized with the provided file path.
+// It opens the file in read-write mode and wraps it into a Wal struct which implements ReaderCloser interface.
+// If the file cannot be opened, an error is returned.
+// The WalReaderCloser allows reading from and closing the Write-Ahead Log (WAL) file.
+func NewReaderCloser(filepath string) (ReaderCloser, error) {
 
 	walFile, err := os.OpenFile(filepath, os.O_RDWR, 0644)
 	if err != nil {
@@ -60,7 +65,11 @@ func NewWalReaderCloser(filepath string) (WalReaderCloser, error) {
 	}, nil
 }
 
-func NewWalWriterCloser(walDir string) (WalWriterCloser, error) {
+// NewWriterCloser creates and returns a new WriterCloser instance initialized with a Write-Ahead Log (WAL) file located in the specified directory.
+// The filename is generated based on the current time and appended with a predefined suffix.
+// It opens the file for writing, creating it if necessary, and wraps it within a Wal structure.
+// Returns a WriterCloser interface and an error if the file operation fails.
+func NewWriterCloser(walDir string) (WriterCloser, error) {
 	filePath := path.Join(walDir, time.Now().Format("20060102150405")+SUFFIX)
 	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
@@ -74,6 +83,10 @@ func NewWalWriterCloser(walDir string) (WalWriterCloser, error) {
 	return wal, nil
 }
 
+// Read decodes the next chunk from the Write-Ahead Log (WAL), verifying its integrity using CRC checksum.
+// It returns a pointer to a Chunk which includes the key-value pair, and a boolean indicating deletion.
+// If the chunk is marked as deleted, the value will be nil.
+// It returns an error if any read operation fails or if the checksum does not match.
 func (w *Wal) Read() (*common.Chunk, error) {
 
 	deletedByte, err := w.reader.ReadByte()
@@ -136,6 +149,8 @@ func (w *Wal) Read() (*common.Chunk, error) {
 	}, nil
 }
 
+// Write encodes the provided chunk using the utility encoder, then writes the encoded bytes to the WAL file.
+// Returns an error if encoding fails or writing to the file encounters an issue.
 func (w *Wal) Write(chunk *common.Chunk) error {
 
 	bytes, err := w.utils.Encode(chunk)
@@ -149,12 +164,24 @@ func (w *Wal) Write(chunk *common.Chunk) error {
 	return nil
 }
 
+// Sync ensures that any buffered data in the Write-Ahead Log (WAL) is written to the disk and flushed.
+// It returns an error if the synchronization operation fails.
 func (w *Wal) Sync() error {
 	return w.file.Sync()
 }
 
+// Close synchronously flushes any unwritten data to disk, closes the WAL file, and removes the file from the filesystem.
+// Returns an error if any of these operations fail.
 func (w *Wal) Close() error {
-	w.file.Sync()
-	w.file.Close()
-	return os.Remove(w.filePath)
+	var err error
+	if err = w.file.Sync(); err != nil {
+		return fmt.Errorf("failed to sync WAL file: %w", err)
+	}
+	if err = w.file.Close(); err != nil {
+		return fmt.Errorf("failed to close WAL file: %w", err)
+	}
+	if err = os.Remove(w.filePath); err != nil {
+		return fmt.Errorf("failed to remove WAL file: %w", err)
+	}
+	return nil
 }

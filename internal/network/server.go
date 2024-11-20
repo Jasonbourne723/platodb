@@ -14,7 +14,10 @@ import (
 
 type Options func(s *Server)
 
-func NewServer(ctx context.Context, processor *commandProcessor, options ...Options) (*Server, error) {
+// NewServer creates and initializes a new Server instance with the provided context and commandProcessor.
+// It also applies any additional configuration options passed as functional arguments.
+// Returns a pointer to the created Server and an error if any occurred during setup.
+func NewServer(ctx context.Context, processor *CommandProcessor, options ...Options) (*Server, error) {
 	s := &Server{
 		processor: processor,
 		ctx:       ctx,
@@ -26,6 +29,7 @@ func NewServer(ctx context.Context, processor *commandProcessor, options ...Opti
 	return s, nil
 }
 
+// WithAddress sets the listening address for the Server instance.
 func WithAddress(address string) Options {
 	return func(s *Server) {
 		s.address = address
@@ -34,7 +38,7 @@ func WithAddress(address string) Options {
 
 type Server struct {
 	address   string
-	processor *commandProcessor
+	processor *CommandProcessor
 	listener  net.Listener
 	ctx       context.Context
 }
@@ -43,6 +47,11 @@ type Session struct {
 	authenticated bool
 }
 
+// Listen starts the TCP server to accept incoming connections.
+// It binds to the address provided in the Server's configuration and listens for incoming TCP connections.
+// Accepted connections are handed off to HandleConnection method for further processing.
+// If the server's context is cancelled, the listener will be closed and the function will return nil.
+// In case of any other error during listening, it returns the specific error encountered.
 func (s *Server) Listen() (err error) {
 
 	s.listener, err = net.Listen("tcp", s.address)
@@ -68,6 +77,10 @@ func (s *Server) Listen() (err error) {
 
 }
 
+// Shutdown closes the server's listener and waits for pending operations to finish within the given context.
+// It shuts down the server by closing the listener, flushing pending commands,
+// and responds to the caller when shutdown is complete or times out.
+// Returns nil if shutdown succeeds, or an error if the operation times out or encounters an issue.
 func (s *Server) Shutdown(ctx context.Context) error {
 
 	if err := s.listener.Close(); err != nil {
@@ -91,6 +104,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 }
 
+// HandleConnection handles a single client connection.
+// It reads commands from the connection, processes them, and sends responses back.
+// The function ensures that the client is authenticated before executing non-AUTH commands.
+// It also manages the session state for each individual connection.
 func (s *Server) HandleConnection(conn net.Conn) {
 	defer conn.Close()
 
@@ -134,6 +151,9 @@ func (s *Server) HandleConnection(conn net.Conn) {
 
 }
 
+// parseRESP reads and parses a RESP (REdis Serialization Protocol) message from the given reader.
+// It returns the command name, a slice of arguments, and an error if any.
+// The function assumes the stream starts with an array header followed by bulk strings.
 func parseRESP(reader *bufio.Reader) (string, []string, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {

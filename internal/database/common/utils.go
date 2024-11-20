@@ -66,6 +66,7 @@ func (u *Utils) Encode(chunk *Chunk) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
 func EnsureDirExists(dirPath string) error {
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil {

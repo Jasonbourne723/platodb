@@ -18,10 +18,18 @@ type block struct {
 	max      string
 }
 
+// enough checks if adding a chunk of specified size would not exceed the BlockSize limit for the block.
 func (b *block) enough(size int64) bool {
-	return b.size+size <= BLOCK_SIZE
+	return b.size+size <= BlockSize
 }
 
+// newBlock creates and returns a new block instance associated with the given segment and starting position.
+// It initializes the block's chunks slice with a capacity of 100 and sets other fields accordingly.
+// Parameters:
+// seg (*segment): The segment to which the block belongs.
+// pos (int64): The starting position of the block within the segment's file.
+// Returns:
+// block: A newly initialized block structure.
 func newBlock(seg *segment, pos int64) block {
 	return block{
 		seg:      seg,
@@ -31,6 +39,13 @@ func newBlock(seg *segment, pos int64) block {
 	}
 }
 
+// addChunk appends a chunk to the block and writes the associated data to the segment file.
+// It updates the block's size and maintains the list of chunks.
+// Parameters:
+// - chunk (*common.Chunk): The chunk to be added.
+// - data ([]byte): The data corresponding to the chunk to be written to the file.
+// Returns:
+// - error: If there is an error writing the data to the file.
 func (b *block) addChunk(chunk *common.Chunk, data []byte) error {
 
 	b.chunks = append(b.chunks, *chunk)
@@ -40,6 +55,8 @@ func (b *block) addChunk(chunk *common.Chunk, data []byte) error {
 	return err
 }
 
+// get retrieves a Chunk from the block based on the provided key. It first ensures the block data is loaded into memory, then performs a binary search to find the chunk.
+// If the chunk is found, it returns the chunk and nil error; otherwise, it returns nil and nil error indicating the key was not found.
 func (b *block) get(key string) (*common.Chunk, error) {
 
 	if len(b.chunks) == 0 { //块数据还未加载到内存
@@ -55,8 +72,11 @@ func (b *block) get(key string) (*common.Chunk, error) {
 	return nil, nil
 }
 
+// loadDataFromDisk reads the block data from disk into memory, populating the 'chunks' slice with decoded data entries.
+// It verifies each entry's integrity using CRC checks and handles cases where the block data is incomplete or corrupt.
+// Returns an error if reading from disk fails or CRC validation fails.
 func (b *block) loadDataFromDisk() error {
-	buf := make([]byte, BLOCK_SIZE)
+	buf := make([]byte, BlockSize)
 	n, err := b.seg.file.ReadAt(buf, b.posBegin)
 	if err != nil {
 		if err != io.EOF {
@@ -144,7 +164,10 @@ func (b *block) loadDataFromDisk() error {
 	return nil
 }
 
-// 二分法 快速查询
+// middleSearch performs a binary search within the chunks of a block to find a chunk with a matching key.
+// It takes a key to search for, and the beginning and end positions (inclusive) of the search range within the chunks slice.
+// Returns the pointer to the found Chunk and true if the key is found; otherwise, returns nil and false.
+// The search range is halved in each recursive call until the key is found or the range is exhausted.
 func (b *block) middleSearch(key string, posBegin int64, posEnd int64) (c *common.Chunk, ok bool) {
 
 	if key < b.chunks[posBegin].Key || key > b.chunks[posEnd].Key {

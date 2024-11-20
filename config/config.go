@@ -32,7 +32,9 @@ type Config struct {
 	} `mapstructure:"logging"`
 }
 
-// LoadConfig 加载配置文件
+// LoadConfig loads the application configuration from a YAML file specified by configPath.
+// It uses Viper to manage configuration reading and watching for changes.
+// Returns a pointer to a Config struct and an error if any occur during loading or parsing.
 func LoadConfig(configPath string) (*Config, error) {
 	v := viper.New()
 

@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-// 连接到远程服务器
+// ConnectToServer attempts to establish a TCP connection to the specified server address within 5 seconds.
+// It returns a net.Conn if successful, along with an error which is nil if no error occurred.
 func ConnectToServer(address string) (net.Conn, error) {
 	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 	if err != nil {
@@ -20,7 +21,15 @@ func ConnectToServer(address string) (net.Conn, error) {
 	return conn, nil
 }
 
-// 发送命令并接收响应
+// SendCommand sends a command to the server over the provided connection formatted as a Redis protocol message and returns the server's response.
+// Args:
+//
+//	conn: The network connection to send the command through.
+//	command: The command string to be sent to the server.
+//
+// Returns:
+//
+//	A string representing the server's response and an error if any occurred during sending or receiving.
 func SendCommand(conn net.Conn, command string) (string, error) {
 	// 拆分命令和参数
 	parts := strings.Fields(command)
@@ -45,7 +54,9 @@ func SendCommand(conn net.Conn, command string) (string, error) {
 	return response, nil
 }
 
-// 处理命令循环
+// HandleCommandLoop continuously prompts the user for commands, sends them to the server using the SendCommand function,
+// and displays the server's response. The loop exits when the user inputs "exit".
+// It uses os.Stdin for reading commands and the provided net.Conn for communication.
 func HandleCommandLoop(conn net.Conn) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
@@ -72,7 +83,8 @@ func HandleCommandLoop(conn net.Conn) {
 	}
 }
 
-// 解析 RESP 协议的响应
+// readResp reads and parses a RESP (REdis Serialization Protocol) message from the given reader.
+// It returns a string representation of the response and an error if any occurs during reading.
 func readResp(reader *bufio.Reader) (string, error) {
 	// 读取 RESP 响应的第一个字符
 	respType, err := reader.ReadByte()
@@ -97,7 +109,8 @@ func readResp(reader *bufio.Reader) (string, error) {
 	}
 }
 
-// 读取简单字符串
+// readSimpleString reads a simple string from the provided reader until a newline character is encountered.
+// It trims the trailing newline and spaces, then returns the resulting string along with any read error.
 func readSimpleString(reader *bufio.Reader) (string, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
@@ -106,7 +119,9 @@ func readSimpleString(reader *bufio.Reader) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// 读取错误响应
+// readError reads an error message from the provided reader until a newline character is encountered.
+// It prefixes the error message with "ERROR: " and trims trailing whitespace.
+// Returns the formatted error message and any read error encountered.
 func readError(reader *bufio.Reader) (string, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
@@ -115,7 +130,8 @@ func readError(reader *bufio.Reader) (string, error) {
 	return "ERROR: " + strings.TrimSpace(line), nil
 }
 
-// 读取整数
+// readInteger reads a line from the provided reader expecting an integer in Redis Serialization Protocol format.
+// It returns the read line including the newline character and an error if any occurs during the read operation.
 func readInteger(reader *bufio.Reader) (string, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
@@ -124,7 +140,8 @@ func readInteger(reader *bufio.Reader) (string, error) {
 	return line, nil
 }
 
-// 读取批量字符串
+// readBulkString reads a bulk string from the provided reader based on the Redis Serialization Protocol.
+// It returns the content of the bulk string and an error if any occurs during the read process.
 func readBulkString(reader *bufio.Reader) (string, error) {
 	// 读取批量字符串的长度
 	line, err := reader.ReadString('\n')
@@ -148,7 +165,9 @@ func readBulkString(reader *bufio.Reader) (string, error) {
 	return string(buf[:length]), nil
 }
 
-// 读取数组
+// readArray reads an array from the provided reader based on the Redis Serialization Protocol.
+// It first reads the count of elements, then iterates to read each element using readResp.
+// The function returns a concatenated string of array elements separated by newlines and an error if any.
 func readArray(reader *bufio.Reader) (string, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {

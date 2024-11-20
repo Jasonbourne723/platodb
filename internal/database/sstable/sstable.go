@@ -11,7 +11,9 @@ type SSTable struct {
 	Root     string
 }
 
-// 创建sstable
+// NewSSTable initializes a new SSTable instance with the given root directory.
+// It loads existing segments from the root directory and appends them to the SSTable.
+// Returns a pointer to the SSTable and an error if any occurs during initialization or loading.
 func NewSSTable(root string) (*SSTable, error) {
 
 	sst := &SSTable{
@@ -25,7 +27,9 @@ func NewSSTable(root string) (*SSTable, error) {
 	return sst, nil
 }
 
-// 加载sstable信息
+// load reads all segment files from the SSTable's root directory and adds them to the SSTable's Segments slice.
+// It ensures the root directory exists before attempting to read files.
+// Any error encountered during file reading or segment loading is returned.
 func (s *SSTable) load() error {
 
 	if err := common.EnsureDirExists(s.Root); err != nil {
@@ -51,7 +55,8 @@ func (s *SSTable) load() error {
 	return nil
 }
 
-// 生成下一个segmentId
+// generateSegmentId returns the next segment ID for the SSTable by incrementing the ID of the last segment in the Segments slice.
+// If the slice is empty, it returns 1.
 func (s *SSTable) generateSegmentId() int64 {
 	if len(s.Segments) == 0 {
 		return 1
@@ -59,7 +64,10 @@ func (s *SSTable) generateSegmentId() int64 {
 	return s.Segments[len(s.Segments)-1].id + 1
 }
 
-// 将内存表写入sstable
+// Write reads data from the provided Scanner and writes it into a new segment within the SSTable.
+// It creates a new segment, iterates over the Scanner, writes each chunk, generates a snapshot for the segment,
+// appends the segment to the SSTable's segments, and syncs the segment to disk.
+// Returns an error if any occurs during segment creation, writing, or syncing.
 func (s *SSTable) Write(scanner common.Scanner) error {
 
 	seg, err := newSegment(s.Root, s.generateSegmentId())
@@ -69,14 +77,23 @@ func (s *SSTable) Write(scanner common.Scanner) error {
 
 	for scanner.Scan() {
 		chunk := scanner.ScanValue()
-		seg.write(chunk)
+		err := seg.write(chunk)
+		if err != nil {
+			return err
+		}
 	}
-	seg.generateSnapshot()
+	err = seg.generateSnapshot()
+	if err != nil {
+		return err
+	}
 	s.Segments = append(s.Segments, seg)
 	return seg.sync()
 }
 
-// 倒序扫描segment文件，直到查询key
+// Get retrieves the value associated with the given key from the SSTable.
+// It iterates through the segments in reverse order to find the latest value for the key.
+// If the key is found and not marked as deleted, it returns the corresponding value; otherwise, it returns nil.
+// If an error occurs during the retrieval process, it is returned along with the nil value.
 func (s *SSTable) Get(key string) ([]byte, error) {
 
 	//布隆过滤器，确认key是否存在
@@ -96,6 +113,7 @@ func (s *SSTable) Get(key string) ([]byte, error) {
 	return nil, nil
 }
 
+// Close shuts down all the segments in the SSTable by calling the close method on each one.
 func (s *SSTable) Close() {
 
 	for i := range s.Segments {
