@@ -1,6 +1,7 @@
 package sstable
 
 import (
+	"context"
 	"path"
 	"path/filepath"
 	"testing"
@@ -35,7 +36,7 @@ func TestSSTable(t *testing.T) {
 	tempDir := "D://platodb//"
 
 	// 创建 SSTable
-	sstable, err := NewSSTable(tempDir)
+	sstable, err := NewSSTable(tempDir, context.Background())
 	assert.NoError(t, err, "Failed to create SSTable")
 	assert.NotNil(t, sstable, "SSTable should not be nil")
 
@@ -77,7 +78,7 @@ func TestLoadSSTable(t *testing.T) {
 	// Setup a new SSTable with temporary directory
 	tempDir := "D://platodb//"
 
-	sstable, err := NewSSTable(tempDir)
+	sstable, err := NewSSTable(tempDir, context.Background())
 	assert.NoError(t, err, "Failed to create SSTable")
 
 	segfiles, _ := filepath.Glob(path.Join("D://platodb", "*.seg"))
@@ -89,7 +90,7 @@ func TestLoadSSTable(t *testing.T) {
 func TestGenerateSegmentId(t *testing.T) {
 	// Setup SSTable
 	tempDir := "D://platodb//"
-	sstable, err := NewSSTable(tempDir)
+	sstable, err := NewSSTable(tempDir, context.Background())
 	assert.NoError(t, err)
 
 	// Generate new segment ID

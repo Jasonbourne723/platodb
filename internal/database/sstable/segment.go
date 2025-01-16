@@ -20,6 +20,7 @@ const (
 	FileModePerm = 0644
 	SegSuffix    = ".seg"
 	SpSuffix     = ".sp"
+	TmpSuffix    = ".tmp"
 )
 
 type snapshotBlock struct {
@@ -36,6 +37,12 @@ type segment struct {
 	snapshots []snapshotBlock
 	size      int64
 	utils     *common.Utils
+	scanPos   scanPos
+}
+
+type scanPos struct {
+	blockPos int
+	chunkPos int
 }
 
 // newSegment creates a new segment with the specified root directory and ID.
@@ -64,6 +71,31 @@ func newSegment(root string, id int64) (*segment, error) {
 		snapshots: make([]snapshotBlock, 0, 50),
 		utils:     common.NewUtils(),
 	}, nil
+}
+
+func newTmpSegment(root string, id int64) (*segment, error) {
+
+	name := fmt.Sprintf("%06d%s%s", id, SegSuffix, TmpSuffix)
+	filePath := path.Join(root, name)
+
+	file, err := os.OpenFile(filePath, os.O_RDWR|os.O_APPEND|os.O_CREATE, FileModePerm)
+	if err != nil {
+		return nil, fmt.Errorf("segment文件打开失败:%w", err)
+	}
+	return &segment{
+		id:        id,
+		file:      file,
+		filePath:  filePath,
+		blocks:    make([]block, 0, 50),
+		snapshots: make([]snapshotBlock, 0, 50),
+		utils:     common.NewUtils(),
+	}, nil
+}
+
+func (s *segment) turnToNormal() {
+	newFilePath := s.filePath[len(s.filePath)-len(TmpSuffix)-1:]
+	os.Rename(s.filePath, newFilePath)
+	s.filePath = newFilePath
 }
 
 // loadSegment loads a segment from the given root directory and segment name.
@@ -149,14 +181,6 @@ func (s *segment) get(key string) (chunk *common.Chunk, err error) {
 		}
 	}
 	return nil, nil
-
-	// for i := range s.blocks {
-	// 	chunk, err := s.blocks[i].get(key)
-	// 	if err != nil || chunk != nil {
-	// 		return chunk, err
-	// 	}
-	// }
-	// return nil, nil
 }
 
 // middleSearch performs a binary search within the segment to find the position of a given key.
@@ -305,6 +329,14 @@ func (s *segment) close() error {
 	return nil
 }
 
+// 删除文件
+func (s *segment) delete() error {
+	if atomic.LoadInt32(&s.closed) == 0 {
+		s.close()
+	}
+	return os.Remove(s.filePath)
+}
+
 // getLatestEnoughBlock returns the latest block in the segment that can accommodate a chunk of size l.
 // If no such block exists, a new block is appended to the segment.
 // The block is guaranteed to have enough space for the chunk.
@@ -321,4 +353,34 @@ func (s *segment) getLatestEnonghBlock(l int64) (*block, error) {
 		s.blocks = append(s.blocks, newBlock(s, int64(length*BlockSize)))
 	}
 	return &s.blocks[len(s.blocks)-1], nil
+}
+
+func (s *segment) newscanner() {
+	s.scanPos = scanPos{
+		blockPos: 0,
+		chunkPos: -1,
+	}
+}
+
+func (s *segment) scan() bool {
+
+	for {
+		if s.scanPos.blockPos >= len(s.blocks) {
+			return false
+		}
+		if len(s.blocks[s.scanPos.blockPos].chunks) == 0 {
+			s.blocks[s.scanPos.blockPos].loadDataFromDisk()
+		}
+		if s.scanPos.chunkPos == len(s.blocks[s.scanPos.blockPos].chunks)-1 {
+			s.scanPos.blockPos++
+			s.scanPos.chunkPos = -1
+		} else {
+			s.scanPos.chunkPos++
+			return true
+		}
+	}
+}
+
+func (s *segment) scanValue() *common.Chunk {
+	return &s.blocks[s.scanPos.blockPos].chunks[s.scanPos.chunkPos]
 }

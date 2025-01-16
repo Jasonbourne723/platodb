@@ -1,6 +1,7 @@
 package sstable
 
 import (
+	"context"
 	"os"
 
 	"github.com/Jasonbourne723/platodb/internal/database/common"
@@ -9,21 +10,23 @@ import (
 type SSTable struct {
 	Segments []*segment
 	Root     string
+	ctx      context.Context
 }
 
 // NewSSTable initializes a new SSTable instance with the given root directory.
 // It loads existing segments from the root directory and appends them to the SSTable.
 // Returns a pointer to the SSTable and an error if any occurs during initialization or loading.
-func NewSSTable(root string) (*SSTable, error) {
-
+func NewSSTable(root string, ctx context.Context) (*SSTable, error) {
 	sst := &SSTable{
 		Root:     root,
 		Segments: make([]*segment, 0, 10),
+		ctx:      ctx,
 	}
 	err := sst.load()
 	if err != nil {
 		return nil, err
 	}
+	go sst.startMergeMonitor()
 	return sst, nil
 }
 
@@ -31,27 +34,21 @@ func NewSSTable(root string) (*SSTable, error) {
 // It ensures the root directory exists before attempting to read files.
 // Any error encountered during file reading or segment loading is returned.
 func (s *SSTable) load() error {
-
 	if err := common.EnsureDirExists(s.Root); err != nil {
 		return err
 	}
-
 	files, err := os.ReadDir(s.Root)
 	if err != nil {
 		return err
 	}
-
 	for _, file := range files {
-
 		name := file.Name()
-
 		seg, err := loadSegment(s.Root, name)
 		if err != nil {
 			continue
 		}
 		s.Segments = append(s.Segments, seg)
 	}
-
 	return nil
 }
 

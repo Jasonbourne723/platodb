@@ -9,6 +9,8 @@ import (
 	"github.com/Jasonbourne723/platodb/internal/database/common"
 )
 
+var IndexErr = errors.New("index error")
+
 type block struct {
 	seg      *segment
 	posBegin int64

@@ -109,6 +109,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // The function ensures that the client is authenticated before executing non-AUTH commands.
 // It also manages the session state for each individual connection.
 func (s *Server) HandleConnection(conn net.Conn) {
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("err: %v\n", err)
+		}
+	}()
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)

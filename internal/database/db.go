@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +27,8 @@ type DB struct {
 	segmentSize     int64
 	dataDir         string
 	walDir          string
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 // Options defines a function type that accepts a pointer to DB and modifies its configuration.
@@ -37,6 +40,8 @@ type Options func(db *DB)
 // Returns a pointer to DB and an error if any occurs during setup or recovery.
 func NewDB(options ...Options) (*DB, error) {
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	db := DB{
 		memoryTables:    make([]memorytable.MemoryTable, 0, 2),
 		walMap:          make(map[memorytable.MemoryTable]wal.WriterCloser),
@@ -47,13 +52,15 @@ func NewDB(options ...Options) (*DB, error) {
 		segmentSize:     8 * common.MB,
 		dataDir:         "/var/platodb",
 		walDir:          "/var/platodb/wal",
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 
 	for _, option := range options {
 		option(&db)
 	}
 
-	sst, err := sstable.NewSSTable(db.dataDir)
+	sst, err := sstable.NewSSTable(db.dataDir, db.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sstable加载失败:%w", err)
 	}
@@ -171,7 +178,7 @@ func (db *DB) Del(key string) error {
 // Afterward, it closes the SSTable to finalize the shutdown sequence.
 // This method is idempotent and will return immediately if called again after the shutdown has been initiated.
 func (db *DB) Shutdown() {
-
+	db.cancel()
 	if !atomic.CompareAndSwapInt32(&db.isShutdonw, 0, 1) {
 		return
 	}
